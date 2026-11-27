@@ -8,6 +8,8 @@
          at the permission prompt - geolocator still functions (with lower
          accuracy) in that case rather than failing outright. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- claude_prompt.txt (v157 - Flutter Camera Capture Integration):

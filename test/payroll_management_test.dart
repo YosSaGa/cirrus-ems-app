@@ -1,13 +1,22 @@
+import 'dart:convert';
+
 import 'package:cirrus_app/models/payroll_calculator.dart';
 import 'package:cirrus_app/screens/payroll_management_screen.dart';
 import 'package:cirrus_app/services/auth_service.dart';
 import 'package:cirrus_app/services/payroll_service.dart';
 import 'package:cirrus_app/theme/app_theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  setUp(() {
+    dotenv.loadFromString(envString: '', isOptional: true);
+  });
+
   tearDown(() {
     PayrollService.debugReset();
   });
@@ -129,4 +138,67 @@ void main() {
     expect(find.text('Owen'), findsOneWidget);
     expect(find.text('1 deductions'), findsOneWidget);
   });
+
+  test(
+    'PayrollService.getMyPayrollConfig skips /payroll/my-config on live API and reads GET /compensation',
+    () async {
+      dotenv.loadFromString(
+        envString: 'API_BASE_URL_ANDROID=https://api.cirrusmarine.site/api/v1/ems',
+        isOptional: true,
+      );
+      SharedPreferences.setMockInitialValues({
+        'ems.user': jsonEncode({
+          'id': 'u-100',
+          'name': 'Jirawat Janjobtam',
+          'employeeCode': '260831',
+        }),
+        'ems.authToken': 'tok',
+      });
+
+      var hitMyConfig = false;
+      PayrollService.debugOverrideClient(
+        MockClient((req) async {
+          if (req.url.path.endsWith('/payroll/my-config')) {
+            hitMyConfig = true;
+            return http.Response('{"message":"Not found"}', 400);
+          }
+          if (req.url.path.endsWith('/compensation')) {
+            return http.Response(
+              jsonEncode([
+                {
+                  'id': 'comp-other',
+                  'employeeId': 'emp-other',
+                  'compensationType': 'salary',
+                  'baseSalary': 99000,
+                  'effectiveDate': '2026-01-01',
+                  'employee': {'id': 'emp-other', 'employeeCode': '999999'},
+                },
+                {
+                  'id': 'comp-mine',
+                  'employeeId': 'emp-100',
+                  'compensationType': 'salary',
+                  'baseSalary': 18000,
+                  'effectiveDate': '2026-11-01',
+                  'employee': {
+                    'id': 'emp-100',
+                    'userId': 'u-100',
+                    'employeeCode': '260831',
+                    'department': 'Marine Engineering',
+                  },
+                },
+              ]),
+              200,
+            );
+          }
+          return http.Response('[]', 404);
+        }),
+      );
+
+      final cfg = await PayrollService.getMyPayrollConfig();
+      expect(hitMyConfig, isFalse);
+      expect(cfg.salary, 18000.0);
+      expect(cfg.department, 'Marine Engineering');
+      expect(cfg.employeeId, 'emp-100');
+    },
+  );
 }

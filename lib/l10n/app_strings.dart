@@ -65,6 +65,14 @@ class AppStrings {
         'Sambungan selamat gagal. Sila semak tarikh/masa peranti atau rangkaian.',
       );
     }
+    if (lower.contains('needs a counted morning_in attendance scan') ||
+        (lower.contains('morning_in') && lower.contains('attendance scan'))) {
+      return t(
+        'No Morning In attendance scan recorded today. Please scan at the fingerprint device or check in on the app first.',
+        'ยังไม่มีบันทึกสแกนเข้างานช่วงเช้าวันนี้ กรุณาไปสแกนนิ้วที่เครื่องหรือลงเวลาเข้างานก่อนเริ่มงาน',
+        'Tiada imbasan masuk pagi hari ini. Sila imbas kehadiran di mesin cap jari atau aplikasi dahulu.',
+      );
+    }
     return raw;
   }
 

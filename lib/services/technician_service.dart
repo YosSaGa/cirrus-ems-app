@@ -40,6 +40,13 @@ class TechnicianJob {
     this.scheduleEnd,
     this.reportSubmitted = false,
     this.lastCheckoutStatus,
+    this.vesselType,
+    this.vesselRegistration,
+    this.vesselModel,
+    this.assetName,
+    this.assetModel,
+    this.assetSerial,
+    this.assetCategory,
   });
 
   final String id;
@@ -59,6 +66,22 @@ class TechnicianJob {
   final String? scheduleEnd;
   final bool reportSubmitted;
   final String? lastCheckoutStatus;
+  final String? vesselType;
+  final String? vesselRegistration;
+  final String? vesselModel;
+  final String? assetName;
+  final String? assetModel;
+  final String? assetSerial;
+  final String? assetCategory;
+
+  bool get hasVesselOrEquipmentDetails =>
+      (vesselType != null && vesselType!.isNotEmpty) ||
+      (vesselRegistration != null && vesselRegistration!.isNotEmpty) ||
+      (vesselModel != null && vesselModel!.isNotEmpty) ||
+      (assetName != null && assetName!.isNotEmpty) ||
+      (assetModel != null && assetModel!.isNotEmpty) ||
+      (assetSerial != null && assetSerial!.isNotEmpty) ||
+      (assetCategory != null && assetCategory!.isNotEmpty);
 
   bool get isClosedOnBackend => const {
     'completed',
@@ -95,6 +118,13 @@ class TechnicianJob {
     scheduleEnd: scheduleEnd,
     reportSubmitted: reportSubmitted ?? this.reportSubmitted,
     lastCheckoutStatus: lastCheckoutStatus ?? this.lastCheckoutStatus,
+    vesselType: vesselType,
+    vesselRegistration: vesselRegistration,
+    vesselModel: vesselModel,
+    assetName: assetName,
+    assetModel: assetModel,
+    assetSerial: assetSerial,
+    assetCategory: assetCategory,
   );
 
   factory TechnicianJob.fromJson(Map<String, dynamic> json) => TechnicianJob(
@@ -115,6 +145,13 @@ class TechnicianJob {
     scheduleEnd: json['scheduleEnd']?.toString(),
     reportSubmitted: json['reportSubmitted'] == true,
     lastCheckoutStatus: json['lastCheckoutStatus']?.toString(),
+    vesselType: json['vesselType']?.toString(),
+    vesselRegistration: json['vesselRegistration']?.toString(),
+    vesselModel: json['vesselModel']?.toString(),
+    assetName: json['assetName']?.toString(),
+    assetModel: json['assetModel']?.toString(),
+    assetSerial: json['assetSerial']?.toString(),
+    assetCategory: json['assetCategory']?.toString(),
   );
 }
 
@@ -158,6 +195,35 @@ class TechnicianWorkSession {
   final bool reportSubmitted;
 
   bool get isActive => status == 'active' && (checkOutAt == null || checkOutAt!.isEmpty);
+
+  /// Work report deadline: 07:00 AM local time on the day after the work session.
+  DateTime? get reportDeadlineLocal {
+    final raw = (checkOutAt != null && checkOutAt!.isNotEmpty)
+        ? checkOutAt!
+        : checkInAt;
+    final ref = DateTime.tryParse(raw)?.toLocal();
+    if (ref == null) return null;
+    return DateTime(ref.year, ref.month, ref.day + 1, 7, 0);
+  }
+
+  /// Overdue minutes past the 07:00 AM next-day deadline (0 if still on time).
+  int reportLateMinutes([DateTime? now]) {
+    final deadline = reportDeadlineLocal;
+    if (deadline == null) return 0;
+    final current = (now ?? DateTime.now()).toLocal();
+    if (!current.isAfter(deadline)) return 0;
+    final mins = current.difference(deadline).inMinutes;
+    return mins < 1 ? 1 : mins;
+  }
+
+  /// Remaining duration until 07:00 AM next-day deadline, or null if overdue.
+  Duration? reportRemainingTime([DateTime? now]) {
+    final deadline = reportDeadlineLocal;
+    if (deadline == null) return null;
+    final current = (now ?? DateTime.now()).toLocal();
+    if (current.isAfter(deadline)) return null;
+    return deadline.difference(current);
+  }
 
   factory TechnicianWorkSession.fromJson(Map<String, dynamic> json) =>
       TechnicianWorkSession(
@@ -1416,6 +1482,79 @@ class TechnicianService {
           fallback?.description ??
           '';
 
+      final resolvedVesselName =
+          _pickStr(raw, const [
+            'vesselName',
+            'vessel_name',
+            'boatName',
+            'boat_name',
+          ]) ??
+          (raw['vessel'] is Map
+              ? _pickStr(
+                  Map<String, dynamic>.from(raw['vessel'] as Map),
+                  const ['name', 'vesselName', 'title'],
+                )
+              : null) ??
+          fallback?.vesselName;
+
+      final rawVesselMap = raw['vessel'] is Map
+          ? Map<String, dynamic>.from(raw['vessel'] as Map)
+          : <String, dynamic>{};
+      final rawAssetMap = raw['asset'] is Map
+          ? Map<String, dynamic>.from(raw['asset'] as Map)
+          : (raw['equipment'] is Map
+                ? Map<String, dynamic>.from(raw['equipment'] as Map)
+                : <String, dynamic>{});
+      final vesselId =
+          _pickStr(raw, const ['vesselId', 'vessel_id']) ??
+          _pickStr(rawVesselMap, const ['id']);
+      final assetId =
+          _pickStr(raw, const [
+            'assetId',
+            'asset_id',
+            'equipmentId',
+            'equipment_id',
+          ]) ??
+          _pickStr(rawAssetMap, const ['id']);
+
+      final vesselAndAsset = await Future.wait<List<Map<String, dynamic>>>([
+        _safeGetList(client, headers, '/vessels'),
+        _safeGetList(client, headers, '/assets'),
+      ]);
+      final vessels = vesselAndAsset[0];
+      final assets = vesselAndAsset[1];
+
+      Map<String, dynamic> matchedVessel = {...rawVesselMap};
+      for (final v in vessels) {
+        final vid = _pickStr(v, const ['id']);
+        final vName = _pickStr(v, const ['name', 'vesselName', 'title']);
+        final idMatch = vesselId != null && vid == vesselId;
+        final nameMatch =
+            resolvedVesselName != null &&
+            vName != null &&
+            vName.toLowerCase() == resolvedVesselName.toLowerCase();
+        if (idMatch || nameMatch) {
+          matchedVessel = {...v, ...matchedVessel};
+          break;
+        }
+      }
+
+      Map<String, dynamic> matchedAsset = {...rawAssetMap};
+      for (final a in assets) {
+        final aid = _pickStr(a, const ['id']);
+        final aVesselId = _pickStr(a, const ['vesselId', 'vessel_id']);
+        if (assetId != null && aid == assetId) {
+          matchedAsset = {...a, ...matchedAsset};
+          break;
+        }
+        if (assetId == null &&
+            vesselId != null &&
+            aVesselId == vesselId &&
+            matchedAsset.isEmpty) {
+          matchedAsset = {...a};
+        }
+      }
+
       return TechnicianJob(
         id: fallback?.id ?? jobId,
         jobCode:
@@ -1461,14 +1600,8 @@ class TechnicianService {
                 : null) ??
             fallback?.projectName,
         vesselName:
-            _pickStr(raw, const ['vesselName', 'vessel_name', 'boatName', 'boat_name']) ??
-            (raw['vessel'] is Map
-                ? _pickStr(
-                    Map<String, dynamic>.from(raw['vessel'] as Map),
-                    const ['name', 'vesselName', 'title'],
-                  )
-                : null) ??
-            fallback?.vesselName,
+            resolvedVesselName ??
+            _pickStr(matchedVessel, const ['name', 'vesselName', 'title']),
         location: location,
         isMine: isMine,
         assignedToName: assignedToName,
@@ -1498,6 +1631,67 @@ class TechnicianService {
             fallback?.scheduleEnd,
         reportSubmitted: fallback?.reportSubmitted ?? false,
         lastCheckoutStatus: fallback?.lastCheckoutStatus,
+        vesselType:
+            _pickStr(matchedVessel, const [
+              'vesselType',
+              'vessel_type',
+              'type',
+              'category',
+            ]) ??
+            fallback?.vesselType,
+        vesselRegistration:
+            _pickStr(matchedVessel, const [
+              'registrationNumber',
+              'registration_number',
+              'imoNumber',
+              'imo_number',
+              'hullNumber',
+              'hull_number',
+              'registration',
+              'code',
+            ]) ??
+            fallback?.vesselRegistration,
+        vesselModel:
+            _pickStr(matchedVessel, const [
+              'model',
+              'make',
+              'builder',
+              'manufacturer',
+            ]) ??
+            fallback?.vesselModel,
+        assetName:
+            _pickStr(matchedAsset, const [
+              'name',
+              'title',
+              'assetName',
+              'asset_name',
+            ]) ??
+            fallback?.assetName,
+        assetModel:
+            _pickStr(matchedAsset, const [
+              'model',
+              'make',
+              'manufacturer',
+              'brand',
+            ]) ??
+            fallback?.assetModel,
+        assetSerial:
+            _pickStr(matchedAsset, const [
+              'serialNumber',
+              'serial_number',
+              'assetCode',
+              'asset_code',
+              'code',
+            ]) ??
+            fallback?.assetSerial,
+        assetCategory:
+            _pickStr(matchedAsset, const [
+              'category',
+              'assetType',
+              'asset_type',
+              'type',
+            ]) ??
+            fallback?.assetCategory,
       );
     } catch (_) {
       return fallback;

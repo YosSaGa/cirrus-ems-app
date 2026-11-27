@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -7,6 +9,7 @@ import '../services/auth_service.dart';
 import '../services/language_service.dart';
 import '../services/technician_service.dart';
 import '../services/theme_service.dart';
+import '../services/work_timer_notification_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ambient_panel.dart';
 import '../widgets/session_transition.dart';
@@ -556,9 +559,102 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
     if (selected is RecentAccount) {
+      final reducedMotion = MediaQuery.disableAnimationsOf(context);
+      final rootNav = Navigator.of(context, rootNavigator: true);
       setState(() => _loggingOut = true);
+      TechnicianService.clearCachedDashboard();
+      unawaited(WorkTimerNotificationService.cancel());
+
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => PopScope(
+          canPop: false,
+          child: AlertDialog(
+            key: const Key('switching-account-dialog'),
+            backgroundColor: AppColors.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.surface),
+            ),
+            content: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      SizedBox(
+                        width: 54,
+                        height: 54,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.6,
+                          color: AppColors.secondary,
+                        ),
+                      ),
+                      CircleAvatar(
+                        radius: 21,
+                        backgroundColor: AppColors.neutral,
+                        child: Text(
+                          selected.name.isNotEmpty
+                              ? selected.name.characters.first.toUpperCase()
+                              : 'U',
+                          style: TextStyle(
+                            color: AppColors.secondary,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    AppStrings.t(
+                      'Switching Account',
+                      'กำลังสลับบัญชี',
+                      'Menukar Akaun',
+                    ),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.neutral,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    AppStrings.t(
+                      'Switching to ${selected.name} (${selected.username})...',
+                      'ท่านกำลังสลับไปใช้บัญชี ${selected.name} (${selected.username})...',
+                      'Anda sedang bertukar ke akaun ${selected.name} (${selected.username})...',
+                    ),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      height: 1.4,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final stopwatch = Stopwatch()..start();
       final switched = await AuthService.switchToAccount(selected);
+      if (!reducedMotion) {
+        final remaining = 650 - stopwatch.elapsedMilliseconds;
+        if (remaining > 0) {
+          await Future<void>.delayed(Duration(milliseconds: remaining));
+        }
+      }
       if (!mounted) return;
+      if (rootNav.canPop()) {
+        rootNav.pop();
+      }
       if (switched) {
         Navigator.of(context).pushAndRemoveUntil(
           sessionTransition(context, const MainShell()),
@@ -585,6 +681,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _loggingOut = true);
 
     TechnicianService.clearCachedDashboard();
+    unawaited(WorkTimerNotificationService.cancel());
     await AuthService.logout(revokeInstantSwitch: revokeInstantSwitch);
 
     if (!reducedMotion) {

@@ -31,9 +31,6 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
   shared_preferences: ^2.5.6
   flutter_dotenv: ^6.0.1
   http: ^1.6.0
@@ -100,7 +97,6 @@ dependencies:
   # beyond this project's own existing `^` convention for every other
   # direct dependency.
   path_provider: ^2.1.6
-  flutter_animate: ^4.5.2
   pdf: ^3.13.1
   printing: ^5.15.1
 
@@ -174,7 +170,6 @@ flutter:
   assets:
     - .env
     - lib/assets/Cirrus_app_logo.svg
-    - lib/assets/Cirrus_app_logo.png
     - lib/assets/cirrus_group_logo.png
     - assets/fonts/Sarabun-Regular.ttf
     - assets/fonts/Sarabun-Bold.ttf

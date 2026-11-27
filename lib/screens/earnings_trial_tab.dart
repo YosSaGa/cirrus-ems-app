@@ -80,6 +80,16 @@ class _EarningsTrialTabState extends State<EarningsTrialTab>
     setState(() {
       _directHourlyRate = cfg.hourlyRate;
       if (cfg.salary != null) _baseSalary = cfg.salary;
+      if (cfg.department != null && (_department == null || _department!.isEmpty)) {
+        _department = cfg.department;
+      }
+      if (cfg.employmentType != null &&
+          (_employmentType == null || _employmentType!.isEmpty)) {
+        _employmentType = cfg.employmentType;
+      }
+      if (cfg.startDate != null && (_startDate == null || _startDate!.isEmpty)) {
+        _startDate = cfg.startDate;
+      }
       _payrollItems = cfg.items;
       if (rateChanged && _estimate != null) {
         _estimate = calculateScanPay(_lastScans, _month, _activePaySettings);

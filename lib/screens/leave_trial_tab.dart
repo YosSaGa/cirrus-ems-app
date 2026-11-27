@@ -313,48 +313,45 @@ class _LeaveTrialTabState extends State<LeaveTrialTab>
             children: [
               FadeSlideEntry(
                 yOffset: 12,
-                child: Card(
-                  margin: EdgeInsets.zero,
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSpacing.sm),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        AmbientPanel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    AmbientPanel(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            AppStrings.t(
+                              'Prepare a leave draft',
+                              'สร้างแบบร่างใบลา',
+                            ),
+                            style: Theme.of(context).textTheme.headlineSmall
+                                ?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          Text(
+                            AppStrings.t(
+                              'Saved on this device only. Drafts aren’t submitted for approval or checked against your leave balance.',
+                              'บันทึกไว้ในเครื่องนี้เท่านั้น ยังไม่ได้ส่งอนุมัติหรือหักจากสิทธิวันลาคงเหลือ',
+                            ),
+                            style: TextStyle(color: AppColors.onNeutralMuted),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Card(
+                      margin: EdgeInsets.zero,
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.lg),
+                        child: Form(
+                          key: _form,
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Text(
-                                AppStrings.t(
-                                  'Prepare a leave draft',
-                                  'สร้างแบบร่างใบลา',
-                                ),
-                                style: Theme.of(context).textTheme.headlineSmall
-                                    ?.copyWith(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                              ),
-                              const SizedBox(height: AppSpacing.sm),
-                              Text(
-                                AppStrings.t(
-                                  'Saved on this device only. Drafts aren’t submitted for approval or checked against your leave balance.',
-                                  'บันทึกไว้ในเครื่องนี้เท่านั้น ยังไม่ได้ส่งอนุมัติหรือหักจากสิทธิวันลาคงเหลือ',
-                                ),
-                                style: TextStyle(
-                                  color: AppColors.onNeutralMuted,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.all(AppSpacing.lg),
-                          child: Form(
-                            key: _form,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
                                 DropdownButtonFormField<LeaveType>(
                                   isExpanded: true,
                                   initialValue: _type,
@@ -382,57 +379,67 @@ class _LeaveTrialTabState extends State<LeaveTrialTab>
                                             setState(() => _type = value!),
                                 ),
                                 const SizedBox(height: 16),
-                                LayoutBuilder(
-                                  builder: (context, constraints) {
-                                    final start = _dateField(isStart: true);
-                                    final end = _dateField(isStart: false);
-                                    final minWidth =
-                                        MediaQuery.textScalerOf(context)
-                                            .scale(13) *
-                                        19;
-                                    if (constraints.maxWidth < minWidth) {
-                                      return Column(
+                                if (_singleDay)
+                                  _dateField(isStart: true)
+                                else
+                                  LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      final start = _dateField(isStart: true);
+                                      final end = _dateField(isStart: false);
+                                      final minWidth =
+                                          MediaQuery.textScalerOf(context)
+                                              .scale(13) *
+                                          19;
+                                      if (constraints.maxWidth < minWidth) {
+                                        return Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.stretch,
+                                          spacing: AppSpacing.sm,
+                                          children: [start, end],
+                                        );
+                                      }
+                                      return Row(
                                         crossAxisAlignment:
-                                            CrossAxisAlignment.stretch,
+                                            CrossAxisAlignment.start,
                                         spacing: AppSpacing.sm,
-                                        children: [start, end],
+                                        children: [
+                                          Expanded(child: start),
+                                          Expanded(child: end),
+                                        ],
                                       );
-                                    }
-                                    return Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      spacing: AppSpacing.sm,
-                                      children: [
-                                        Expanded(child: start),
-                                        Expanded(child: end),
-                                      ],
-                                    );
-                                  },
-                                ),
-                                const SizedBox(height: 8),
-                                Material(
-                                  type: MaterialType.transparency,
-                                  child: CheckboxListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    title: Text(
-                                      AppStrings.t(
-                                        'One day (single date)',
-                                        'ลา 1 วัน (วันเดียว)',
-                                      ),
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
+                                    },
+                                  ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        AppStrings.t(
+                                          'One day (single date)',
+                                          'ลา 1 วัน (วันเดียว)',
+                                        ),
+                                        style: TextStyle(
+                                          fontSize: 13.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.neutral,
+                                        ),
                                       ),
                                     ),
-                                    value: _singleDay,
-                                    onChanged: _busy || _loadFailed
-                                        ? null
-                                        : (value) => setState(() {
-                                            _singleDay = value!;
-                                            if (_singleDay) _end = _start;
-                                          }),
-                                  ),
+                                    Switch.adaptive(
+                                      value: _singleDay,
+                                      activeThumbColor: AppColors.secondary,
+                                      activeTrackColor: AppColors.secondary
+                                          .withValues(alpha: 0.35),
+                                      onChanged: _busy || _loadFailed
+                                          ? null
+                                          : (value) => setState(() {
+                                              _singleDay = value;
+                                              if (_singleDay) _end = _start;
+                                            }),
+                                    ),
+                                  ],
                                 ),
+                                const SizedBox(height: 6),
                                 TextFormField(
                                   key: const Key('leave-reason'),
                                   controller: _reason,
@@ -455,43 +462,50 @@ class _LeaveTrialTabState extends State<LeaveTrialTab>
                                       : null,
                                 ),
                                 const SizedBox(height: 6),
-                                Wrap(
-                                  spacing: 6,
-                                  runSpacing: 6,
-                                  children: [
-                                    for (final preset in [
-                                      AppStrings.t(
-                                        'Medical / Doctor visit',
-                                        'พบแพทย์ / พักรักษาตัว',
-                                        'Rawatan doktor / Cuti sakit',
-                                      ),
-                                      AppStrings.t(
-                                        'Personal errand',
-                                        'ติดธุระส่วนตัว',
-                                        'Urusan peribadi',
-                                      ),
-                                      AppStrings.t(
-                                        'Annual vacation',
-                                        'พักผ่อนประจำปี',
-                                        'Percutian tahunan',
-                                      ),
-                                    ])
-                                      ActionChip(
-                                        visualDensity: VisualDensity.compact,
-                                        label: Text(
-                                          preset,
-                                          style: const TextStyle(fontSize: 11.5),
+                                SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(
+                                    children: [
+                                      for (final entry in [
+                                        AppStrings.t(
+                                          'Medical / Doctor visit',
+                                          'พบแพทย์ / พักรักษาตัว',
+                                          'Rawatan doktor / Cuti sakit',
                                         ),
-                                        onPressed: _busy || _loadFailed
-                                            ? null
-                                            : () {
-                                                HapticFeedback.selectionClick();
-                                                setState(
-                                                  () => _reason.text = preset,
-                                                );
-                                              },
-                                      ),
-                                  ],
+                                        AppStrings.t(
+                                          'Personal errand',
+                                          'ติดธุระส่วนตัว',
+                                          'Urusan peribadi',
+                                        ),
+                                        AppStrings.t(
+                                          'Annual vacation',
+                                          'พักผ่อนประจำปี',
+                                          'Percutian tahunan',
+                                        ),
+                                      ].asMap().entries) ...[
+                                        if (entry.key > 0)
+                                          const SizedBox(width: 8),
+                                        ActionChip(
+                                          visualDensity: VisualDensity.compact,
+                                          label: Text(
+                                            entry.value,
+                                            style: const TextStyle(
+                                              fontSize: 11.5,
+                                            ),
+                                          ),
+                                          onPressed: _busy || _loadFailed
+                                              ? null
+                                              : () {
+                                                  HapticFeedback.selectionClick();
+                                                  setState(
+                                                    () => _reason.text =
+                                                        entry.value,
+                                                  );
+                                                },
+                                        ),
+                                      ],
+                                    ],
+                                  ),
                                 ),
                                 if (_start.isBefore(
                                   DateTime(
@@ -549,15 +563,14 @@ class _LeaveTrialTabState extends State<LeaveTrialTab>
                                     message: _error!,
                                   ),
                                 ],
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
-              ),
               if (_loadFailed)
                 TextButton(
                   onPressed: _busy ? null : _load,
@@ -626,25 +639,6 @@ class _LeaveTrialTabState extends State<LeaveTrialTab>
                     exporting: _exporting,
                     onViewPdf: () => _viewPdf(draft),
                     onCancel: () => _cancel(draft),
-                  ),
-                ),
-              ],
-              if (_drafts.length > 2) ...[
-                const SizedBox(height: 14),
-                FilledButton.icon(
-                  onPressed: _busy ? null : _openAllDrafts,
-                  icon: const Icon(Icons.list_alt_rounded, size: 18),
-                  label: Text(
-                    AppStrings.isThai
-                        ? 'ดูแบบร่างทั้งหมด (${_drafts.length})'
-                        : 'View all drafts (${_drafts.length})',
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.neutral,
-                    foregroundColor: AppColors.onNeutral,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
-                    ),
                   ),
                 ),
               ],

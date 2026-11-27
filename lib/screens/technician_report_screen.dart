@@ -23,16 +23,20 @@ class TechnicianReportScreen extends StatefulWidget {
     super.key,
     this.session,
     this.job,
+    this.mandatory = false,
   }) : assert(session != null || job != null);
 
   final TechnicianWorkSession? session;
   final TechnicianJob? job;
+  final bool mandatory;
 
   @override
   State<TechnicianReportScreen> createState() => _TechnicianReportScreenState();
 }
 
-class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
+class _TechnicianReportScreenState extends State<TechnicianReportScreen>
+    with WidgetsBindingObserver {
+  bool get _isLocked => widget.mandatory || widget.session != null;
   final _descController = TextEditingController();
   final _findingsController = TextEditingController();
   final _recommendController = TextEditingController();
@@ -43,8 +47,10 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
 
   String _workType = 'service';
   bool _submitting = false;
+  String? _submitStageLabel;
   String? _error;
   Timer? _draftDebounce;
+  Timer? _deadlineTimer;
   bool _draftRestored = false;
 
   String get _draftKey =>
@@ -62,10 +68,25 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _descController.addListener(_scheduleSaveDraft);
     _findingsController.addListener(_scheduleSaveDraft);
     _recommendController.addListener(_scheduleSaveDraft);
     _restoreDraft();
+    if (widget.session != null) {
+      _deadlineTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+        if (mounted) setState(() {});
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      _draftDebounce?.cancel();
+      _saveDraftNow();
+    }
   }
 
   Future<void> _restoreDraft() async {
@@ -140,7 +161,9 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _draftDebounce?.cancel();
+    _deadlineTimer?.cancel();
     _descController.dispose();
     _findingsController.dispose();
     _recommendController.dispose();
@@ -152,6 +175,89 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
     final dt = DateTime.tryParse(iso)?.toLocal();
     if (dt == null) return '--:--';
     return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatLateDuration(int minutes) {
+    if (minutes < 60) {
+      return AppStrings.t('$minutes min', '$minutes นาที', '$minutes minit');
+    }
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return AppStrings.t(
+      '${h}h ${m}m ($minutes min)',
+      '$h ชม. $m นาที ($minutes นาที)',
+      '${h}j ${m}m ($minutes minit)',
+    );
+  }
+
+  Widget _buildDeadlineBanner(TechnicianWorkSession session) {
+    final lateMinutes = session.reportLateMinutes();
+    if (lateMinutes > 0) {
+      return Container(
+        key: const Key('report-late-banner'),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        decoration: BoxDecoration(
+          color: AppColors.error.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(AppRadius.input),
+          border: Border.all(color: AppColors.error.withValues(alpha: 0.45)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.timer_off_outlined, size: 20, color: AppColors.error),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                AppStrings.t(
+                  'Overdue by ${_formatLateDuration(lateMinutes)} (past 07:00 deadline)',
+                  'ส่งรายงานเกินกำหนด 07:00 น. แล้ว ${_formatLateDuration(lateMinutes)}',
+                  'Lewat ${_formatLateDuration(lateMinutes)} (melepasi had 07:00)',
+                ),
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.error,
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final remaining = session.reportRemainingTime();
+    if (remaining == null) return const SizedBox.shrink();
+    final h = remaining.inHours;
+    final m = remaining.inMinutes % 60;
+    return Container(
+      key: const Key('report-deadline-banner'),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      decoration: BoxDecoration(
+        color: AppColors.warningContainer,
+        borderRadius: BorderRadius.circular(AppRadius.input),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.schedule_rounded, size: 20, color: AppColors.warning),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              AppStrings.t(
+                'Submit before 07:00 tomorrow (${h}h ${m}m left)',
+                'กรุณาส่งรายงานก่อน 07:00 น. วันถัดไป (เหลือ $h ชม. $m นาที)',
+                'Hantar sebelum 07:00 esok (baki ${h}j ${m}m)',
+              ),
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: AppColors.onWarningContainer,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _addPhoto() async {
@@ -420,6 +526,17 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
     setState(() {
       _submitting = true;
       _error = null;
+      _submitStageLabel = _photos.isNotEmpty
+          ? AppStrings.t(
+              'Uploading photo 1/${_photos.length}...',
+              'กำลังอัปโหลดรูป 1/${_photos.length}...',
+              'Memuat naik foto 1/${_photos.length}...',
+            )
+          : AppStrings.t(
+              'Submitting Report...',
+              'กำลังส่งรายงาน...',
+              'Menghantar Laporan...',
+            );
     });
 
     try {
@@ -427,6 +544,15 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
       for (var i = 0; i < _photos.length; i++) {
         final photo = _photos[i];
         final cached = _uploadedPhotoKeys[photo];
+        if (cached == null && mounted) {
+          setState(() {
+            _submitStageLabel = AppStrings.t(
+              'Uploading photo ${i + 1}/${_photos.length}...',
+              'กำลังอัปโหลดรูป ${i + 1}/${_photos.length}...',
+              'Memuat naik foto ${i + 1}/${_photos.length}...',
+            );
+          });
+        }
         final storageKey =
             cached ??
             await AttendanceService.uploadAttendancePhoto(
@@ -437,11 +563,25 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
         uploadedPhotoKeys.add(storageKey);
       }
 
+      if (mounted) {
+        setState(() {
+          _submitStageLabel = AppStrings.t(
+            'Submitting Report...',
+            'กำลังส่งรายงาน...',
+            'Menghantar Laporan...',
+          );
+        });
+      }
+
       await TechnicianService.submitReport(
         sessionId: widget.session?.id ?? '',
         workOrderId: widget.job?.id ?? widget.session?.jobId,
         projectId: widget.job?.projectId,
-        workDescription: desc,
+        workDescription: () {
+          final lateMins = widget.session?.reportLateMinutes() ?? 0;
+          if (lateMins <= 0) return desc;
+          return '$desc\n\n[ส่งรายงานช้า / Late Report: +$lateMins min (เกินกำหนด 07:00 น.)]';
+        }(),
         workType: _workType,
         findings: _findingsController.text.trim().isEmpty
             ? null
@@ -463,6 +603,7 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
       setState(() {
         _error = AppStrings.friendlyError(e);
         _submitting = false;
+        _submitStageLabel = null;
       });
     }
   }
@@ -476,9 +617,37 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
     final vesselName = s?.vesselName ?? j?.vesselName;
 
     return PopScope(
-      canPop: _photos.isEmpty || _submitting,
+      canPop: !_isLocked && (_photos.isEmpty || _submitting),
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
+        if (_isLocked) {
+          HapticFeedback.heavyImpact();
+          final messenger = ScaffoldMessenger.maybeOf(context);
+          messenger?.hideCurrentSnackBar();
+          messenger?.showSnackBar(
+            SnackBar(
+              key: const Key('report-locked-snackbar'),
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: AppColors.neutral,
+              duration: const Duration(seconds: 3),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              content: Text(
+                AppStrings.t(
+                  'Please complete and submit this work report before leaving.',
+                  'กรุณากรอกและส่งรายงานการทำงานให้เสร็จก่อนออกจากหน้านี้',
+                  'Sila lengkapkan dan hantar laporan kerja ini sebelum keluar.',
+                ),
+                style: TextStyle(
+                  color: AppColors.onNeutral,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+          return;
+        }
         final nav = Navigator.of(context);
         final leave = await _confirmLeaveWithPhotos();
         if (leave && mounted) {
@@ -488,6 +657,7 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
       child: Scaffold(
       backgroundColor: AppColors.primary,
       appBar: AppBar(
+        automaticallyImplyLeading: !_isLocked,
         backgroundColor: AppColors.primary,
         elevation: 0,
         title: Text(
@@ -633,6 +803,10 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
+                    if (s != null) ...[
+                      _buildDeadlineBanner(s),
+                      const SizedBox(height: 12),
+                    ],
                     if (_error != null) ...[
                       StatusBanner(
                         variant: StatusVariant.error,
@@ -952,11 +1126,12 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
                       : const Icon(Icons.send_rounded, size: 18),
                   label: Text(
                     _submitting
-                        ? AppStrings.t(
-                            'Submitting Report...',
-                            'กำลังส่งรายงาน...',
-                            'Menghantar Laporan...',
-                          )
+                        ? (_submitStageLabel ??
+                              AppStrings.t(
+                                'Submitting Report...',
+                                'กำลังส่งรายงาน...',
+                                'Menghantar Laporan...',
+                              ))
                         : AppStrings.t(
                             'Submit Work Report',
                             'ส่งรายงานการทำงาน',

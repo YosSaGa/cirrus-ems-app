@@ -281,6 +281,11 @@ class LeaveDraftCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final endDay = DateTime(draft.end.year, draft.end.month, draft.end.day);
+    final isPast = endDay.isBefore(today);
+
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
       decoration: BoxDecoration(
@@ -309,19 +314,25 @@ class LeaveDraftCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: draft.cancelled
+                  color: (draft.cancelled || isPast)
                       ? AppColors.cardBorder
                       : AppColors.secondary.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(AppRadius.pill),
                 ),
                 child: Text(
                   draft.cancelled
-                      ? AppStrings.t('Cancelled', 'ยกเลิกแล้ว')
-                      : AppStrings.t('Local draft', 'แบบร่างในเครื่อง'),
+                      ? AppStrings.t('Cancelled', 'ยกเลิกแล้ว', 'Dibatalkan')
+                      : isPast
+                      ? AppStrings.t('Passed', 'ผ่านวันที่ลาแล้ว', 'Tamat tempoh')
+                      : AppStrings.t(
+                          'Local draft',
+                          'แบบร่างในเครื่อง',
+                          'Draf tempatan',
+                        ),
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    color: draft.cancelled
+                    color: (draft.cancelled || isPast)
                         ? AppColors.textSecondary
                         : AppColors.neutral,
                   ),
@@ -373,17 +384,25 @@ class LeaveDraftCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              TextButton.icon(
+              OutlinedButton.icon(
                 onPressed: busy || exporting ? null : onViewPdf,
-                style: TextButton.styleFrom(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.neutral,
+                  side: BorderSide(color: AppColors.cardBorder),
                   minimumSize: const Size(0, 36),
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                  ),
                 ),
                 icon: const Icon(Icons.picture_as_pdf_outlined, size: 17),
                 label: Text(AppStrings.t('View PDF', 'ดูไฟล์ PDF')),
               ),
-              if (!draft.cancelled)
+              if (!draft.cancelled && !isPast)
                 TextButton.icon(
                   onPressed: busy ? null : onCancel,
                   style: TextButton.styleFrom(

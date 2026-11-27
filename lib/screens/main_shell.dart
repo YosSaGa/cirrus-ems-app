@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../l10n/app_strings.dart';
 import '../services/language_service.dart';
 import '../services/theme_service.dart';
 import '../theme/app_theme.dart';
@@ -90,6 +92,7 @@ class _MainShellState extends State<MainShell> {
 
   final List<Widget?> _cachedTabs = List<Widget?>.filled(4, null);
   final _scrollControllers = List.generate(4, (_) => ScrollController());
+  DateTime? _lastBackPressedAt;
 
   void _selectTab(int index) {
     if (index != _index) {
@@ -124,32 +127,69 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: _shellListenable,
-      builder: (context, _) {
-        if (AppBreakpoints.isDesktop(context)) {
-          return Scaffold(
-            backgroundColor: AppColors.primary,
-            body: Row(
-              children: [
-                AppSideNav(currentIndex: _index, onTap: _selectTab),
-                Expanded(
-                  child: IndexedStack(index: _index, children: _scopedTabs),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        final now = DateTime.now();
+        if (_lastBackPressedAt == null ||
+            now.difference(_lastBackPressedAt!) > const Duration(seconds: 2)) {
+          _lastBackPressedAt = now;
+          final messenger = ScaffoldMessenger.maybeOf(context);
+          messenger?.hideCurrentSnackBar();
+          messenger?.showSnackBar(
+            SnackBar(
+              key: const Key('press-back-again-snackbar'),
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: AppColors.neutral,
+              duration: const Duration(seconds: 2),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              content: Text(
+                AppStrings.t(
+                  'Press back again to exit',
+                  'กดย้อนกลับอีกครั้งเพื่อออกจากแอป',
+                  'Tekan kembali sekali lagi untuk keluar',
                 ),
-              ],
+                style: TextStyle(
+                  color: AppColors.onNeutral,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
           );
+          return;
         }
-        return Scaffold(
-          backgroundColor: AppColors.primary,
-          extendBody: true,
-          body: IndexedStack(index: _index, children: _scopedTabs),
-          bottomNavigationBar: AppBottomNav(
-            currentIndex: _index,
-            onTap: _selectTab,
-          ),
-        );
+        SystemNavigator.pop();
       },
+      child: ListenableBuilder(
+        listenable: _shellListenable,
+        builder: (context, _) {
+          if (AppBreakpoints.isDesktop(context)) {
+            return Scaffold(
+              backgroundColor: AppColors.primary,
+              body: Row(
+                children: [
+                  AppSideNav(currentIndex: _index, onTap: _selectTab),
+                  Expanded(
+                    child: IndexedStack(index: _index, children: _scopedTabs),
+                  ),
+                ],
+              ),
+            );
+          }
+          return Scaffold(
+            backgroundColor: AppColors.primary,
+            extendBody: true,
+            body: IndexedStack(index: _index, children: _scopedTabs),
+            bottomNavigationBar: AppBottomNav(
+              currentIndex: _index,
+              onTap: _selectTab,
+            ),
+          );
+        },
+      ),
     );
   }
 }

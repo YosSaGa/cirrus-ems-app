@@ -25,6 +25,7 @@ Attendance ส่งรูปและ event ผ่าน `AttendanceService` �
 | `web/` | Web entry HTML, manifest และ icons |
 | `windows/`, `linux/`, `macos/` | runner และ build configuration ของแต่ละ desktop platform |
 | `docs/superpowers/` | แผนและข้อกำหนดงานทดลองที่บันทึกไว้ในอดีต ใช้ README และ TASK_STATUS ตรวจสถานะปัจจุบันประกอบ เพราะสูตรอาจเปลี่ยนแล้ว |
+| `sql/` | ไฟล์ SQL migration (`001_employee_payroll_items.sql`) และเอกสารสเปก API (`PAYROLL_API_SPEC.md`) สำหรับส่งให้ทีม Backend เปิดใช้งานระบบ Payroll & Deductions |
 | `.agents/skills/` | คำแนะนำ skill ภายในโปรเจกต์ รวม Official `flutter/skills` และ `dart-lang/skills` สำหรับ AI agent (ไม่ถูกรวมใน APK) |
 | `.tools/python/` | Python portable สำหรับเครื่องมือด้านการออกแบบ |
 | `.tools/ems_local_server.js` | Local EMS API Bridge พอร์ต `3000` สำหรับเชื่อมฐานข้อมูล PostgreSQL `cirrus_02` ในเครื่องพัฒนา |
@@ -84,6 +85,7 @@ Attendance ส่งรูปและ event ผ่าน `AttendanceService` �
 | --- | --- |
 | `lib/services/auth_service.dart` | เลือก base URL, HTTP auth, login/logout, session, Web SSO และตรวจสิทธิ์ RBAC (`canManagePayroll`, `isTechnician`) |
 | `lib/services/technician_service.dart` | REST client โหมดช่าง (`GET /technician/my-jobs`, `POST /technician/check-in`, `POST /technician/check-out`) เฉพาะ Role `Technician` |
+| `lib/services/work_timer_notification_service.dart` | แสดง/ยกเลิก Android Chronometer notification นับเวลาทำงานสดบนแถบแจ้งเตือนระหว่างช่างอยู่ในสถานะ `ON SITE` (ผ่าน `MethodChannel`) |
 | `lib/services/payroll_service.dart` | REST client สำหรับดึง/อัปเดตอัตราค่าแรงรายชั่วโมง (`hr.compensation`) และเพิ่ม/แก้ไข/ลบรายการหัก (`hr.employee_payroll_items`) |
 | `lib/services/attendance_service.dart` | API สถานะ สแกน ประวัติ อัปโหลดรูป ส่ง event และจัดการ pending request รวม request ID สำหรับ retry |
 | `lib/services/location_service.dart` | ขอพิกัดปัจจุบันตามสิทธิ์อุปกรณ์ |

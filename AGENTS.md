@@ -12,6 +12,7 @@ Flutter app ฝั่งพนักงาน เชื่อมต่อ EMS Ba
   - คำสั่งทดสอบ: `F:\bin\flutter.bat test <test_file>` หรือ `F:\bin\flutter.bat test test/a.dart test/b.dart`
   - คำสั่ง build (Debug): `F:\bin\flutter.bat build apk --debug -t lib/main.dart`
   - คำสั่ง build (Profile 60fps AOT): `F:\bin\flutter.bat build apk --profile -t lib/main.dart`
+  - คำสั่ง build (Release ขนาดเล็กที่สุด): `F:\bin\flutter.bat build apk --release --split-per-abi --obfuscate --split-debug-info=build/app/outputs/symbols -t lib/main.dart`
   - คำสั่ง analyze: `F:\bin\flutter.bat analyze lib/screens/xxx.dart`
 - **State/Storage:** SharedPreferences (ใบลา, session, retry queue, ธีม `ems.themeMode`, ภาษา `ems.language`)
 - **HTTP:** `http` package, เลือก client ตาม platform ผ่าน `api_client_factory*.dart`
@@ -63,6 +64,7 @@ lib/
   services/
     auth_service.dart             # login, session, SSO, logout, baseUrl, RBAC (canManagePayroll, isTechnician)
     technician_service.dart       # REST client โหมดช่าง (my-jobs / check-in / check-out ลง hr.work_sessions)
+    work_timer_notification_service.dart # แจ้งเตือน Android Chronometer นับเวลาทำงานสดบน Status Bar (MethodChannel)
     payroll_service.dart          # REST client จัดการเรทต่อชม. และรายการหัก (hr.compensation / hr.employee_payroll_items)
     attendance_service.dart       # attendance events, upload, history, retry
     theme_service.dart            # จัดการธีม 3 แบบ + SharedPreferences

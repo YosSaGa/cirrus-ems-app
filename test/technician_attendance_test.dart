@@ -721,6 +721,264 @@ void main() {
 
       expect(find.text('START JOB'), findsOneWidget);
       expect(find.text('CHECK IN'), findsNothing);
+      expect(
+        find.byKey(const Key('technician-scan-reminder-banner')),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
+    'Technician with job today and stale yesterday scan sees scan reminder and Check In',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'ems.user': jsonEncode({'id': 't1', 'name': 'Touch'}),
+        'ems.roles': jsonEncode(['Technician']),
+      });
+      await LanguageService.setLanguage(AppLanguage.en);
+
+      AttendanceService.debugOverrideClient(
+        MockClient((request) async {
+          if (request.url.path.endsWith('/my-scans')) {
+            return http.Response('[]', 200);
+          }
+          return http.Response(
+            jsonEncode({
+              'currentWorkDate': '2026-11-27',
+              'currentWindowCode': 'morning_in',
+              'latestEvent': {
+                'workDate': '2026-11-26',
+                'windowCode': 'leave',
+                'scannedAt': '2026-11-26T10:00:00.000Z',
+              },
+              'latestCountedEvent': {
+                'workDate': '2026-11-26',
+                'windowCode': 'leave',
+                'scannedAt': '2026-11-26T10:00:00.000Z',
+              },
+            }),
+            200,
+          );
+        }),
+      );
+
+      TechnicianService.getMyJobsOverride = () async => const TechnicianDashboardData(
+        workDate: '2026-11-27',
+        jobs: [
+          TechnicianJob(
+            id: 'wo-201',
+            jobCode: 'WO-201',
+            title: 'Engine Check',
+            isMine: true,
+          ),
+        ],
+        todaySessions: [],
+        completedWindows: {},
+        nextWindowCode: 'morning_in',
+      );
+
+      await tester.pumpWidget(wrapScreen(const AttendanceScreen()));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('technician-scan-reminder-banner')),
+        findsOneWidget,
+      );
+      expect(find.text('CHECK IN'), findsOneWidget);
+      expect(find.text('START JOB'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Pending TechnicianReportScreen hides back button and blocks maybePop until submitted',
+    (tester) async {
+      await LanguageService.setLanguage(AppLanguage.en);
+      await tester.pumpWidget(
+        wrapScreen(
+          Builder(
+            builder: (btnCtx) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  key: const Key('open-locked-report-btn'),
+                  onPressed: () {
+                    Navigator.of(btnCtx).push(
+                      MaterialPageRoute(
+                        builder: (_) => const TechnicianReportScreen(
+                          session: TechnicianWorkSession(
+                            id: 'sess-lock-1',
+                            jobId: 'wo-lock-1',
+                            jobCode: 'WO-900',
+                            jobTitle: 'Locked Report Job',
+                            status: 'completed',
+                            checkInAt: '2026-11-27T08:00:00Z',
+                            reportSubmitted: false,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                  child: const Text('Open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('open-locked-report-btn')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TechnicianReportScreen), findsOneWidget);
+      expect(find.byType(BackButton), findsNothing);
+      expect(find.byTooltip('Back'), findsNothing);
+
+      final ctx = tester.element(find.byType(TechnicianReportScreen));
+      await Navigator.of(ctx).maybePop();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TechnicianReportScreen), findsOneWidget);
+      expect(find.byKey(const Key('open-locked-report-btn')), findsNothing);
+      expect(find.byKey(const Key('report-locked-snackbar')), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Technician with no jobs and no scan today still sees scan reminder banner',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'ems.user': jsonEncode({'id': 't1', 'name': 'Touch'}),
+        'ems.roles': jsonEncode(['Technician']),
+      });
+      await LanguageService.setLanguage(AppLanguage.en);
+      stubBaseAttendance();
+
+      TechnicianService.getMyJobsOverride = () async =>
+          const TechnicianDashboardData(
+            workDate: '2026-11-27',
+            jobs: [],
+            todaySessions: [],
+            completedWindows: {},
+            nextWindowCode: 'morning_in',
+          );
+
+      await tester.pumpWidget(wrapScreen(const AttendanceScreen()));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('technician-scan-reminder-banner')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'TechnicianJobDetailScreen shows VESSEL & EQUIPMENT card when specs exist and hides when empty',
+    (tester) async {
+      await LanguageService.setLanguage(AppLanguage.en);
+
+      await tester.pumpWidget(
+        wrapScreen(
+          const TechnicianJobDetailScreen(
+            job: TechnicianJob(
+              id: 'wo-spec-1',
+              jobCode: 'WO-301',
+              title: 'Main Engine Overhaul',
+              vesselName: 'PUNN',
+              vesselType: 'Tugboat',
+              vesselRegistration: 'TH-9981',
+              assetName: 'Caterpillar C32',
+              assetModel: 'C32 ACERT',
+              assetSerial: 'SN-44102',
+            ),
+            isSelected: false,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('job-vessel-equipment-card')),
+        findsOneWidget,
+      );
+      expect(find.text('Tugboat'), findsOneWidget);
+      expect(find.text('TH-9981'), findsOneWidget);
+      expect(find.text('Caterpillar C32'), findsOneWidget);
+      expect(find.text('C32 ACERT'), findsOneWidget);
+      expect(find.text('SN-44102'), findsOneWidget);
+
+      await tester.pumpWidget(
+        wrapScreen(
+          const TechnicianJobDetailScreen(
+            key: ValueKey('detail-spec-2'),
+            job: TechnicianJob(
+              id: 'wo-spec-2',
+              jobCode: 'WO-302',
+              title: 'Deck Paint',
+              vesselName: 'PUNN',
+            ),
+            isSelected: false,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('job-vessel-equipment-card')), findsNothing);
+    },
+  );
+
+  test(
+    'TechnicianWorkSession.reportLateMinutes counts minutes past 07:00 next day',
+    () {
+      final session = TechnicianWorkSession(
+        id: 'sess-dl-1',
+        jobId: 'wo-dl-1',
+        jobCode: 'WO-401',
+        jobTitle: 'Deadline Check',
+        status: 'completed',
+        checkInAt: DateTime(2026, 11, 26, 8, 0).toIso8601String(),
+        checkOutAt: DateTime(2026, 11, 26, 17, 0).toIso8601String(),
+        reportSubmitted: false,
+      );
+
+      final beforeDeadline = DateTime(2026, 11, 27, 6, 30);
+      expect(session.reportLateMinutes(beforeDeadline), 0);
+      expect(
+        session.reportRemainingTime(beforeDeadline),
+        const Duration(minutes: 30),
+      );
+
+      final afterDeadline = DateTime(2026, 11, 27, 7, 45);
+      expect(session.reportLateMinutes(afterDeadline), 45);
+      expect(session.reportRemainingTime(afterDeadline), isNull);
+    },
+  );
+
+  testWidgets(
+    'TechnicianReportScreen shows overdue late-minutes banner when past 07:00 next day',
+    (tester) async {
+      await LanguageService.setLanguage(AppLanguage.en);
+
+      await tester.pumpWidget(
+        wrapScreen(
+          TechnicianReportScreen(
+            session: TechnicianWorkSession(
+              id: 'sess-overdue-1',
+              jobId: 'wo-overdue-1',
+              jobCode: 'WO-402',
+              jobTitle: 'Overdue Report Test',
+              status: 'completed',
+              checkInAt: DateTime(2026, 11, 20, 8, 0).toIso8601String(),
+              checkOutAt: DateTime(2026, 11, 20, 17, 0).toIso8601String(),
+              reportSubmitted: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('report-late-banner')), findsOneWidget);
+      expect(find.textContaining('Overdue by'), findsOneWidget);
     },
   );
 }

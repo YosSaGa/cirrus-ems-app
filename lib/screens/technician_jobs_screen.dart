@@ -1229,6 +1229,20 @@ class _TechnicianJobDetailScreenState extends State<TechnicianJobDetailScreen> {
                         ],
                       ),
                     ),
+                    if (job.hasVesselOrEquipmentDetails) ...[
+                      const SizedBox(height: 12),
+                      KeyedSubtree(
+                        key: const Key('job-vessel-equipment-card'),
+                        child: _infoCard(
+                          title: AppStrings.t(
+                            'VESSEL & EQUIPMENT',
+                            'ข้อมูลเรือและอุปกรณ์',
+                            'KAPAL & PERALATAN',
+                          ),
+                          child: _vesselEquipmentRows(job),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1435,6 +1449,72 @@ class _TechnicianJobDetailScreenState extends State<TechnicianJobDetailScreen> {
       ),
     ],
   );
+
+  Widget _vesselEquipmentRows(TechnicianJob job) {
+    final rows = <Widget>[];
+    void addRow(IconData icon, String label, String value) {
+      if (rows.isNotEmpty) rows.add(const Divider(height: 20));
+      rows.add(_metaRow(icon, label, value));
+    }
+
+    if (job.vesselType != null && job.vesselType!.isNotEmpty) {
+      addRow(
+        Icons.sailing_outlined,
+        AppStrings.t('Vessel Type', 'ประเภทเรือ', 'Jenis Kapal'),
+        job.vesselType!,
+      );
+    }
+    if (job.vesselModel != null && job.vesselModel!.isNotEmpty) {
+      addRow(
+        Icons.directions_boat_filled_outlined,
+        AppStrings.t(
+          'Vessel Model / Builder',
+          'รุ่น / ผู้ต่อเรือ',
+          'Model Kapal',
+        ),
+        job.vesselModel!,
+      );
+    }
+    if (job.vesselRegistration != null && job.vesselRegistration!.isNotEmpty) {
+      addRow(
+        Icons.badge_outlined,
+        AppStrings.t('Registration / IMO', 'ทะเบียน / รหัสเรือ', 'Pendaftaran'),
+        job.vesselRegistration!,
+      );
+    }
+    if (job.assetName != null && job.assetName!.isNotEmpty) {
+      final cat = (job.assetCategory != null && job.assetCategory!.isNotEmpty)
+          ? ' (${job.assetCategory})'
+          : '';
+      addRow(
+        Icons.precision_manufacturing_outlined,
+        AppStrings.t('Equipment / Asset', 'อุปกรณ์ / เครื่องจักร', 'Peralatan'),
+        '${job.assetName!}$cat',
+      );
+    } else if (job.assetCategory != null && job.assetCategory!.isNotEmpty) {
+      addRow(
+        Icons.category_outlined,
+        AppStrings.t('Equipment Type', 'ประเภทอุปกรณ์', 'Jenis Peralatan'),
+        job.assetCategory!,
+      );
+    }
+    if (job.assetModel != null && job.assetModel!.isNotEmpty) {
+      addRow(
+        Icons.build_outlined,
+        AppStrings.t('Equipment Model', 'รุ่นอุปกรณ์', 'Model Peralatan'),
+        job.assetModel!,
+      );
+    }
+    if (job.assetSerial != null && job.assetSerial!.isNotEmpty) {
+      addRow(
+        Icons.qr_code_2_rounded,
+        AppStrings.t('Serial / Code', 'หมายเลขเครื่อง / รหัส', 'No. Siri'),
+        job.assetSerial!,
+      );
+    }
+
+    return Column(children: rows);
+  }
 }
 
 /// High-contrast Vessel badge used inside dark navy hero cards.

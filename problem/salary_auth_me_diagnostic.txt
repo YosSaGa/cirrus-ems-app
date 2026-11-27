@@ -1,0 +1,137 @@
+================================================================================
+EMS MOBILE APP -> BACKEND DIAGNOSTIC LOG (SALARY / EMPLOYEE METADATA / PAYROLL)
+================================================================================
+Generated : 2026-11-27 15:55 (+07:00)
+App       : Cirrus EMS (com.cirrusgroup.ems, Flutter 3.50.0 / Dart 3.14.0)
+Base URL  : https://api.cirrusmarine.site/api/v1/ems
+Test User : Jirawat Janjobtam (employeeCode: 260831, Role: Admin)
+Screen    : Earnings & Leave -> Pay Estimate (3D Pay Card Details)
+================================================================================
+
+--------------------------------------------------------------------------------
+[1] OBSERVED SYMPTOMS IN MOBILE APP
+--------------------------------------------------------------------------------
+1. On the back of the 3D Pay Card (lib/screens/earnings_trial_tab.dart):
+     BASE SALARY : NOT SET
+     DEPARTMENT  : NOT PROVIDED
+     EMPLOYMENT  : NOT PROVIDED
+     START DATE  : NOT PROVIDED
+2. Hourly pay estimate falls back to the trial fixed daily wage:
+     THB 300.00 / 8H (THB 37.50/hr)
+   instead of the employee's real monthly salary formula:
+     salary / 30 days / 8 hours
+
+--------------------------------------------------------------------------------
+[2] LIVE ENDPOINT PROBE LOG (2026-11-27 15:07 - 15:08 +07:00)
+--------------------------------------------------------------------------------
+Probe against https://api.cirrusmarine.site/api/v1/ems (unauthenticated GET;
+401 = route exists behind JWT auth, 404 = route does not exist):
+
+  GET /api/v1/ems/auth/me                      -> HTTP 401 (exists)
+  GET /api/v1/ems/compensation                 -> HTTP 401 (exists)
+  GET /api/v1/ems/payroll                      -> HTTP 401 (exists)
+  GET /api/v1/ems/payroll/my-config            -> HTTP 401 (matched wildcard @Get('payroll/:id'))
+  GET /api/v1/ems/payroll/nonexistent-xyz-123  -> HTTP 401 (confirms wildcard :id route)
+  GET /api/v1/ems/payroll-components           -> HTTP 401 (exists)
+  GET /api/v1/ems/team-members                 -> HTTP 401 (exists)
+  GET /api/v1/ems/projects                     -> HTTP 401 (exists)
+  GET /api/v1/ems/vessels                      -> HTTP 401 (exists)
+  GET /api/v1/ems/assets                       -> HTTP 401 (exists)
+  GET /api/v1/ems/work-orders                  -> HTTP 401 (exists)
+  GET /api/v1/ems/work-sessions                -> HTTP 401 (exists)
+  GET /api/v1/ems/technician-reports           -> HTTP 401 (exists)
+
+  GET /api/v1/ems/employees                    -> HTTP 404 (not found)
+  GET /api/v1/ems/employees/me                 -> HTTP 404 (not found)
+  GET /api/v1/ems/hr/employees                 -> HTTP 404 (not found)
+  GET /api/v1/ems/hr/compensation              -> HTTP 404 (not found)
+  GET /api/v1/ems/salary                       -> HTTP 404 (not found)
+  GET /api/v1/ems/users                        -> HTTP 404 (not found)
+  GET /api/v1/ems/staff                        -> HTTP 404 (not found)
+  GET /api/v1/ems/leave-requests               -> HTTP 404 (not found)
+  GET /api/v1/ems/leaves                       -> HTTP 404 (not found)
+
+--------------------------------------------------------------------------------
+[3] BACKEND SQL ERROR LOG (PREVIOUSLY TRIGGERED & FIXED ON MOBILE)
+--------------------------------------------------------------------------------
+Request:
+  GET /api/v1/ems/payroll/my-config
+
+Backend Query Error:
+  query failed: SELECT "PayrollRecord"."id" AS "PayrollRecord_id", ...
+  FROM "hr"."payroll_records" "PayrollRecord"
+  WHERE (("PayrollRecord"."id" = $1)) LIMIT 1 -- PARAMETERS: ["my-config"]
+  error: error: invalid input syntax for type uuid: "my-config"
+
+Cause:
+  NestJS matched /payroll/my-config against @Get('payroll/:id') with id="my-config".
+
+Mobile Fix Applied (lib/services/payroll_service.dart):
+  PayrollService.getMyPayrollConfig() now skips GET /payroll/my-config on live
+  servers (calls it only on local bridge) and queries GET /compensation directly.
+  (Verified by unit test in test/payroll_management_test.dart.)
+
+--------------------------------------------------------------------------------
+[4] ROOT CAUSE: WHY SALARY & EMPLOYEE FIELDS ARE STILL MISSING ON LIVE SERVER
+--------------------------------------------------------------------------------
+1. GET /api/v1/ems/auth/me currently queries core.employees by user_id and returns
+   only `employeeCode` (e.g. "260831"), omitting:
+     - employeeId (core.employees.id)
+     - salary (core.employees.salary)
+     - department (core.employees.department)
+     - employmentType (core.employees.employment_type)
+     - startDate (core.employees.start_date)
+2. The mobile app cannot query /employees or /employees/me (both return HTTP 404).
+3. When the mobile app falls back to GET /compensation:
+   - Mobile only knows user.id (core.users.id) and user.employeeCode ("260831").
+   - hr.compensation rows are keyed by employee_id (core.employees.id), so if
+     GET /compensation does not embed employee.userId or employee.employeeCode
+     (or the account has no row in hr.compensation / role is blocked from
+     reading /compensation), no match can be found.
+
+--------------------------------------------------------------------------------
+[5] RECOMMENDED BACKEND FIX (auth.service.ts -> GET /api/v1/ems/auth/me)
+--------------------------------------------------------------------------------
+In auth.service.ts where core.employees is already queried by user_id:
+
+  SELECT
+    id,
+    employee_code,
+    salary,
+    department,
+    employment_type,
+    start_date
+  FROM core.employees
+  WHERE user_id = $1
+
+Include these fields in the `user` object returned by GET /api/v1/ems/auth/me:
+
+{
+  "user": {
+    "id": "<core.users.id>",
+    "employeeId": "<core.employees.id>",
+    "name": "Jirawat Janjobtam",
+    "email": "...",
+    "employeeCode": "260831",
+    "salary": 18000,
+    "department": "Engineering",
+    "employmentType": "full_time",
+    "startDate": "2026-10-06"
+  },
+  "roles": ["Admin"],
+  "permissions": ["..."]
+}
+
+Note: The mobile app (lib/screens/earnings_trial_tab.dart) already parses
+`salary`, `department`, `employmentType`, and `startDate` from `/auth/me`.
+No mobile app update is required once Backend returns these fields.
+
+--------------------------------------------------------------------------------
+[6] OPTIONAL: FULL PAYROLL & DEDUCTIONS MIGRATION
+--------------------------------------------------------------------------------
+To also enable Settings > Payroll & Deductions (accommodation, SSO, work
+insurance) on live server, see:
+  - sql/001_employee_payroll_items.sql
+  - sql/PAYROLL_API_SPEC.md
+  (Note: place @Get('payroll/my-config') ABOVE @Get('payroll/:id') in NestJS.)
+================================================================================

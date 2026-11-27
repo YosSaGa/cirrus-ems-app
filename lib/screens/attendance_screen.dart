@@ -13,6 +13,7 @@ import '../services/auth_service.dart';
 import '../services/local_photo_store.dart';
 import '../services/location_service.dart';
 import '../services/technician_service.dart';
+import '../services/work_timer_notification_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/session_transition.dart';
 import '../widgets/detail_row.dart';
@@ -94,6 +95,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   TechnicianJob? _selectedTechJob;
   Timer? _techPollTimer;
   bool _techPollingInFlight = false;
+  bool _reportScreenOpen = false;
   Set<String>? _knownTechJobIds;
   String? _promptedPendingReportSessionId;
 
@@ -152,6 +154,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (!mounted ||
         !_isTechnician ||
         _techPollingInFlight ||
+        _reportScreenOpen ||
         _actionInProgress ||
         _loading) {
       return;
@@ -182,6 +185,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         }
       });
 
+      unawaited(
+        WorkTimerNotificationService.syncForActiveSession(fresh.activeSession),
+      );
+
+      if (fresh.pendingReportSession != null && fresh.activeSession == null) {
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _maybePromptPendingReport(fresh),
+        );
+      }
+
       if (newJobs.isNotEmpty &&
           mounted &&
           AppPreferencesService.jobAlertsEnabled) {
@@ -195,17 +208,53 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         final titleSuffix = primary.title.isNotEmpty
             ? ' · ${primary.title}'
             : '';
+        final scanSuffix = !_hasScannedAttendanceToday
+            ? AppStrings.t(
+                ' · Please scan attendance first',
+                ' · อย่าลืมไปสแกนเข้างานด้วย',
+                ' · Sila imbas kehadiran dahulu',
+              )
+            : '';
         final msg = newJobs.length == 1
             ? AppStrings.t(
-                'New Job Code: ${primary.jobCode}$titleSuffix',
-                'มี Job Code ใหม่เข้า: ${primary.jobCode}$titleSuffix',
-                'Kod Kerja baharu: ${primary.jobCode}$titleSuffix',
+                'New Job Code: ${primary.jobCode}$titleSuffix$scanSuffix',
+                'มี Job Code ใหม่เข้า: ${primary.jobCode}$titleSuffix$scanSuffix',
+                'Kod Kerja baharu: ${primary.jobCode}$titleSuffix$scanSuffix',
               )
             : AppStrings.t(
-                '${newJobs.length} new Job Codes added (latest: ${primary.jobCode})',
-                'มี Job Code ใหม่เข้า ${newJobs.length} งาน (ล่าสุด: ${primary.jobCode})',
-                '${newJobs.length} Kod Kerja baharu ditambah (${primary.jobCode})',
+                '${newJobs.length} new Job Codes added (latest: ${primary.jobCode})$scanSuffix',
+                'มี Job Code ใหม่เข้า ${newJobs.length} งาน (ล่าสุด: ${primary.jobCode})$scanSuffix',
+                '${newJobs.length} Kod Kerja baharu ditambah (${primary.jobCode})$scanSuffix',
               );
+        final alertTitle = newJobs.length == 1
+            ? AppStrings.t(
+                'New Job: ${primary.jobCode}',
+                'มีงานใหม่เข้า: ${primary.jobCode}',
+                'Kerja Baharu: ${primary.jobCode}',
+              )
+            : AppStrings.t(
+                '${newJobs.length} New Jobs Assigned',
+                'มีงานใหม่เข้า ${newJobs.length} งาน',
+                '${newJobs.length} Kerja Baharu',
+              );
+        final alertParts = <String>[
+          if (primary.title.isNotEmpty) primary.title,
+          if (primary.vesselName != null && primary.vesselName!.isNotEmpty)
+            primary.vesselName!,
+          if (!_hasScannedAttendanceToday)
+            AppStrings.t(
+              'Please scan attendance first',
+              'อย่าลืมไปสแกนเข้างานด้วย',
+              'Sila imbas kehadiran dahulu',
+            ),
+        ];
+        unawaited(
+          WorkTimerNotificationService.showNewJobAlert(
+            title: alertTitle,
+            body: alertParts.isEmpty ? msg : alertParts.join(' · '),
+            vibrate: AppPreferencesService.hapticsEnabled,
+          ),
+        );
         final messenger = ScaffoldMessenger.maybeOf(context);
         messenger?.hideCurrentSnackBar();
         messenger?.showSnackBar(
@@ -335,6 +384,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       _loading = false;
     });
     _ensureTechnicianPolling();
+    unawaited(
+      WorkTimerNotificationService.syncForActiveSession(
+        _isTechnician ? techData?.activeSession : null,
+      ),
+    );
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _maybePromptPendingReport(techData),
     );
@@ -350,73 +404,86 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogCtx) => AlertDialog(
-        key: const Key('pending-report-startup-dialog'),
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.surface),
-        ),
-        icon: Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: AppColors.warning.withValues(alpha: 0.14),
-            shape: BoxShape.circle,
+      builder: (dialogCtx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          key: const Key('pending-report-startup-dialog'),
+          backgroundColor: AppColors.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.surface),
           ),
-          child: Icon(
-            Icons.assignment_late_outlined,
-            color: AppColors.warning,
-            size: 26,
-          ),
-        ),
-        title: Text(
-          AppStrings.t(
-            'Pending Work Report',
-            'มีรายงานการทำงานค้างอยู่',
-            'Laporan Kerja Tertunda',
-          ),
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: AppColors.neutral,
-          ),
-        ),
-        content: Text(
-          AppStrings.t(
-            'You finished ${pending.jobCode} but have not submitted the work report yet. Tap OK to complete it now.',
-            'คุณจบงาน ${pending.jobCode} แล้ว แต่ยังไม่ได้ส่งรายงานการทำงาน กดตกลงเพื่อไปกรอกรายงานที่ค้างไว้',
-            'Anda telah menamatkan ${pending.jobCode} tetapi belum menghantar laporan. Ketik OK untuk mengisinya.',
-          ),
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 13.5,
-            height: 1.45,
-            color: AppColors.textSecondary,
-          ),
-        ),
-        actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
-        actions: [
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              key: const Key('pending-report-startup-ok-button'),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.neutral,
-                foregroundColor: AppColors.onNeutral,
-                minimumSize: const Size(0, 46),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                ),
-              ),
-              onPressed: () => Navigator.of(dialogCtx).pop(true),
-              child: Text(
-                AppStrings.t('OK', 'ตกลง', 'OK'),
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
+          icon: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: AppColors.warning.withValues(alpha: 0.14),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.assignment_late_outlined,
+              color: AppColors.warning,
+              size: 26,
             ),
           ),
-        ],
+          title: Text(
+            AppStrings.t(
+              'Pending Work Report',
+              'มีรายงานการทำงานค้างอยู่',
+              'Laporan Kerja Tertunda',
+            ),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: AppColors.neutral,
+            ),
+          ),
+          content: Text(
+            () {
+              final lateMin = pending.reportLateMinutes();
+              final base = AppStrings.t(
+                'You finished ${pending.jobCode} but have not submitted the work report yet. You must complete this report before using other parts of the app.',
+                'คุณจบงาน ${pending.jobCode} แล้ว แต่ยังไม่ได้ส่งรายงานการทำงาน กรุณากรอกรายงานที่ค้างไว้ให้เสร็จก่อนใช้งานส่วนอื่น',
+                'Anda telah menamatkan ${pending.jobCode} tetapi belum menghantar laporan. Anda mesti melengkapkan laporan ini sebelum menggunakan bahagian lain.',
+              );
+              if (lateMin <= 0) return base;
+              final lateNote = AppStrings.t(
+                '\n\nOverdue by $lateMin min (past 07:00 deadline).',
+                '\n\nส่งรายงานเกินกำหนด 07:00 น. แล้ว $lateMin นาที',
+                '\n\nLewat $lateMin minit (melepasi had 07:00).',
+              );
+              return '$base$lateNote';
+            }(),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13.5,
+              height: 1.45,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                key: const Key('pending-report-startup-ok-button'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.neutral,
+                  foregroundColor: AppColors.onNeutral,
+                  minimumSize: const Size(0, 46),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                  ),
+                ),
+                onPressed: () => Navigator.of(dialogCtx).pop(true),
+                child: Text(
+                  AppStrings.t('OK', 'ตกลง', 'OK'),
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
     if (confirmed == true && mounted) {
@@ -1290,14 +1357,27 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   bool get _hasScannedAttendanceToday {
-    final latestCounted = _status?['latestCountedEvent'];
-    if (latestCounted is Map && latestCounted.isNotEmpty) return true;
-    final latestEvent = _status?['latestEvent'];
-    if (latestEvent is Map && latestEvent.isNotEmpty) return true;
+    if (_completedWindowCodes.isNotEmpty) return true;
     if (_techData != null && _techData!.completedWindows.isNotEmpty) {
       return true;
     }
-    return false;
+    final workDate = _status?['currentWorkDate']?.toString();
+    bool isTodayEvent(dynamic raw) {
+      if (raw is! Map || raw.isEmpty) return false;
+      if (workDate == null || workDate.isEmpty) return true;
+      final evWorkDate = raw['workDate']?.toString();
+      if (evWorkDate != null && evWorkDate.isNotEmpty) {
+        return evWorkDate == workDate;
+      }
+      final scannedAt = raw['scannedAt']?.toString();
+      if (scannedAt != null && scannedAt.isNotEmpty) {
+        return scannedAt.startsWith(workDate);
+      }
+      return false;
+    }
+
+    return isTodayEvent(_status?['latestCountedEvent']) ||
+        isTodayEvent(_status?['latestEvent']);
   }
 
   Future<void> _technicianCheckIn() async {
@@ -1631,11 +1711,19 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<void> _openTechnicianReport(TechnicianWorkSession session) async {
-    final submitted = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => TechnicianReportScreen(session: session),
-      ),
-    );
+    if (_reportScreenOpen) return;
+    _reportScreenOpen = true;
+    bool? submitted;
+    try {
+      submitted = await Navigator.of(context, rootNavigator: true).push<bool>(
+        MaterialPageRoute(
+          builder: (_) =>
+              TechnicianReportScreen(session: session, mandatory: true),
+        ),
+      );
+    } finally {
+      _reportScreenOpen = false;
+    }
     if (!mounted) return;
     if (submitted == true) {
       ScaffoldMessenger.of(context)
@@ -1653,6 +1741,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             ),
           ),
         );
+    } else {
+      _promptedPendingReportSessionId = null;
     }
     await _loadInitial();
   }
@@ -1756,6 +1846,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       );
 
       if (!mounted) return;
+      unawaited(WorkTimerNotificationService.cancel());
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
         ..showSnackBar(
@@ -1974,6 +2065,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         jobStatus: selectedJobStatus,
       );
       if (!mounted) return;
+      unawaited(WorkTimerNotificationService.cancel());
       setState(() => _actionInProgress = false);
       await _openTechnicianReport(breakSession);
     } catch (e) {

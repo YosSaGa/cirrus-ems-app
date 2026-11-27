@@ -232,6 +232,13 @@ class TechnicianJobActionZone extends StatelessWidget {
       onPressed = canTap ? onCheckIn : null;
     }
 
+    final hasActionableJobs = jobs.any((j) => j.isSelectableForCheckIn);
+    final showScanReminder =
+        active == null &&
+        breakSession == null &&
+        pendingReport == null &&
+        !alreadyClockedIn;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -241,6 +248,51 @@ class TechnicianJobActionZone extends StatelessWidget {
           _onBreakBannerCard(breakSession)
         else
           _jobSelectorCard(context, jobs: jobs, active: active),
+        if (showScanReminder) ...[
+          const SizedBox(height: 10),
+          Container(
+            key: const Key('technician-scan-reminder-banner'),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            decoration: BoxDecoration(
+              color: AppColors.warningContainer,
+              borderRadius: BorderRadius.circular(AppRadius.input),
+              border: Border.all(
+                color: AppColors.warning.withValues(alpha: 0.55),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.fingerprint_rounded,
+                  size: 20,
+                  color: AppColors.warning,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    hasActionableJobs
+                        ? AppStrings.t(
+                            'You have an assigned job — please scan attendance first before starting work.',
+                            'มีงานเข้าแล้ว กรุณาไปสแกนเข้างานด้วยก่อนเริ่มงาน',
+                            'Anda ada kerja baharu — sila imbas kehadiran dahulu sebelum mula kerja.',
+                          )
+                        : AppStrings.t(
+                            'You have not scanned attendance today — please scan in at the fingerprint device or in the app.',
+                            'วันนี้คุณยังไม่ได้สแกนเข้างาน กรุณาไปสแกนนิ้วหรือลงเวลาเข้างานด้วย',
+                            'Anda belum mengimbas kehadiran hari ini — sila imbas di mesin cap jari atau aplikasi.',
+                          ),
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.onWarningContainer,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: AppSpacing.lg),
         TimeActionButton(
           label: buttonLabel,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../l10n/app_strings.dart';
 import '../models/payroll_calculator.dart';
@@ -554,6 +555,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   // background scan refresh for the SnackBar feedback step below.
   bool _recalculating = false;
   bool _showAllScans = false;
+  _HistoryScanFilter _scanFilter = _HistoryScanFilter.all;
 
   bool _navigatingToLogin = false;
 
@@ -733,6 +735,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     setState(() {
       _month = DateTime(_month.year, _month.month - 1, 1);
       _showAllScans = false;
+      _scanFilter = _HistoryScanFilter.all;
     });
     _loadSummary();
     _loadScans();
@@ -743,9 +746,50 @@ class _HistoryScreenState extends State<HistoryScreen> {
     setState(() {
       _month = DateTime(_month.year, _month.month + 1, 1);
       _showAllScans = false;
+      _scanFilter = _HistoryScanFilter.all;
     });
     _loadSummary();
     _loadScans();
+  }
+
+  void _goToCurrentMonth() {
+    if (_isCurrentMonth) return;
+    final now = DateTime.now();
+    setState(() {
+      _month = DateTime(now.year, now.month, 1);
+      _showAllScans = false;
+      _scanFilter = _HistoryScanFilter.all;
+    });
+    _loadSummary();
+    _loadScans();
+  }
+
+  void _toggleFilter(_HistoryScanFilter filter) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _scanFilter = _scanFilter == filter ? _HistoryScanFilter.all : filter;
+    });
+  }
+
+  String _filterLabel(_HistoryScanFilter filter) {
+    switch (filter) {
+      case _HistoryScanFilter.late:
+        return AppStrings.t('Late days', 'วันที่มาสาย', 'Hari lewat');
+      case _HistoryScanFilter.earlyLeave:
+        return AppStrings.t(
+          'Early leave days',
+          'วันที่ออกก่อนเวลา',
+          'Hari pulang awal',
+        );
+      case _HistoryScanFilter.overtime:
+        return AppStrings.t(
+          'Overtime days',
+          'วันที่มีล่วงเวลา',
+          'Hari lebih masa',
+        );
+      case _HistoryScanFilter.all:
+        return AppStrings.t('All', 'ทั้งหมด', 'Semua');
+    }
   }
 
   Future<void> _refreshAll() async {
@@ -797,6 +841,36 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               ? null
                               : _goToNextMonth,
                         ),
+                        if (!_isCurrentMonth) ...[
+                          const SizedBox(height: 6),
+                          Center(
+                            child: TextButton.icon(
+                              key: const Key('history-this-month-button'),
+                              onPressed: anyLoading ? null : _goToCurrentMonth,
+                              style: TextButton.styleFrom(
+                                foregroundColor: AppColors.secondary,
+                                minimumSize: const Size(0, 32),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 4,
+                                ),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              icon: const Icon(Icons.today_rounded, size: 16),
+                              label: Text(
+                                AppStrings.t(
+                                  'This month',
+                                  'เดือนนี้',
+                                  'Bulan ini',
+                                ),
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: AppSpacing.lg),
                         _WorkingHoursCard(
                           isCurrentMonth: _isCurrentMonth,
@@ -805,6 +879,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           minutes: _monthlyWorkingMinutes,
                           verifiedPayMinutes: _verifiedPayMinutes,
                         ),
+                        if (!_scansLoading &&
+                            _scansError == null &&
+                            _dailySummaries.isNotEmpty) ...[
+                          const SizedBox(height: AppSpacing.md),
+                          _MonthlyScanStatsGrid(
+                            stats: _MonthlyScanStats.fromSummaries(
+                              _dailySummaries,
+                            ),
+                            activeFilter: _scanFilter,
+                            onToggleFilter: _toggleFilter,
+                          ),
+                        ],
                         const SizedBox(height: AppSpacing.lg),
                         Text(
                           AppStrings.t(
@@ -952,18 +1038,58 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ];
     }
 
-    final totalCount = _dailySummaries.length;
+    final filtered = _scanFilter == _HistoryScanFilter.all
+        ? _dailySummaries
+        : _dailySummaries
+              .where((d) => _MonthlyScanStats.matchesFilter(d, _scanFilter))
+              .toList(growable: false);
+    final totalCount = filtered.length;
     final visibleCount = _showAllScans
         ? totalCount
         : (totalCount > 4 ? 4 : totalCount);
 
     return [
+      if (_scanFilter != _HistoryScanFilter.all)
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            0,
+            AppSpacing.lg,
+            AppSpacing.sm,
+          ),
+          sliver: SliverToBoxAdapter(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: InputChip(
+                key: const Key('history-active-filter-chip'),
+                backgroundColor: AppColors.secondary.withValues(alpha: 0.14),
+                side: BorderSide(
+                  color: AppColors.secondary.withValues(alpha: 0.45),
+                ),
+                label: Text(
+                  '${_filterLabel(_scanFilter)} ($totalCount)',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.neutral,
+                  ),
+                ),
+                deleteIcon: Icon(
+                  Icons.close_rounded,
+                  size: 16,
+                  color: AppColors.neutral,
+                ),
+                onDeleted: () => _toggleFilter(_HistoryScanFilter.all),
+              ),
+            ),
+          ),
+        ),
       SliverPadding(
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
         sliver: SliverList.builder(
           itemCount: visibleCount,
           itemBuilder: (context, index) {
-            final summary = _dailySummaries[index];
+            final summary = filtered[index];
             return Padding(
               padding: EdgeInsets.only(top: index > 0 ? AppSpacing.sm : 0),
               child: FadeSlideEntry(
@@ -1689,6 +1815,22 @@ class _DailyScanRow extends StatelessWidget {
         ? '${summary.scanCount} ครั้ง'
         : (summary.scanCount == 1 ? '1 scan' : '${summary.scanCount} scans');
 
+    var lateMin = 0;
+    var earlyMin = 0;
+    var otMin = 0;
+    String? earlyScanTime;
+    for (final s in chronological) {
+      final l = _positiveMinutes(s['lateMinutes']);
+      if (l != null) lateMin += l;
+      final e = _positiveMinutes(s['earlyLeaveMinutes']);
+      if (e != null) {
+        earlyMin += e;
+        earlyScanTime ??= _formatDeviceLocalTime(s['scannedAt']?.toString());
+      }
+      final ot = _positiveMinutes(s['overTime']);
+      if (ot != null) otMin += ot;
+    }
+
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -1830,10 +1972,111 @@ class _DailyScanRow extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (lateMin > 0 || earlyMin > 0 || otMin > 0) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      if (lateMin > 0)
+                        _DailyMetricPill(
+                          icon: Icons.schedule_rounded,
+                          bgColor: AppColors.warningContainer,
+                          borderColor: AppColors.warning.withValues(
+                            alpha: 0.4,
+                          ),
+                          iconColor: AppColors.warning,
+                          textColor: AppColors.onWarningContainer,
+                          label: AppStrings.isThai
+                              ? 'สาย $lateMin นาที'
+                              : 'Late ${lateMin}m',
+                        ),
+                      if (earlyMin > 0)
+                        _DailyMetricPill(
+                          icon: Icons.exit_to_app_rounded,
+                          bgColor: AppColors.warningContainer,
+                          borderColor: AppColors.warning.withValues(
+                            alpha: 0.4,
+                          ),
+                          iconColor: AppColors.warning,
+                          textColor: AppColors.onWarningContainer,
+                          label: () {
+                            final timeSuffix =
+                                earlyScanTime != null &&
+                                    earlyScanTime != '-' &&
+                                    earlyScanTime != checkOut
+                                ? ' ($earlyScanTime)'
+                                : '';
+                            return AppStrings.isThai
+                                ? 'ออกก่อน $earlyMin นาที$timeSuffix'
+                                : 'Early leave ${earlyMin}m$timeSuffix';
+                          }(),
+                        ),
+                      if (otMin > 0)
+                        _DailyMetricPill(
+                          icon: Icons.bolt_rounded,
+                          bgColor: AppColors.secondary.withValues(alpha: 0.14),
+                          borderColor: AppColors.secondary.withValues(
+                            alpha: 0.4,
+                          ),
+                          iconColor: AppColors.secondary,
+                          textColor: AppColors.neutral,
+                          label: AppStrings.isThai
+                              ? 'ล่วงเวลา ${AppStrings.formatHoursMinutes(otMin)}'
+                              : 'OT ${AppStrings.formatHoursMinutes(otMin)}',
+                        ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _DailyMetricPill extends StatelessWidget {
+  const _DailyMetricPill({
+    required this.icon,
+    required this.bgColor,
+    required this.borderColor,
+    required this.iconColor,
+    required this.textColor,
+    required this.label,
+  });
+
+  final IconData icon;
+  final Color bgColor;
+  final Color borderColor;
+  final Color iconColor;
+  final Color textColor;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: iconColor),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: textColor,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2239,6 +2482,306 @@ class _MetricMini extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
         ),
       ],
+    );
+  }
+}
+
+enum _HistoryScanFilter { all, late, earlyLeave, overtime }
+
+class _MonthlyScanStats {
+  const _MonthlyScanStats({
+    required this.workDays,
+    required this.lateDays,
+    required this.lateMinutes,
+    required this.earlyLeaveDays,
+    required this.earlyLeaveMinutes,
+    required this.overtimeDays,
+    required this.overtimeMinutes,
+  });
+
+  final int workDays;
+  final int lateDays;
+  final int lateMinutes;
+  final int earlyLeaveDays;
+  final int earlyLeaveMinutes;
+  final int overtimeDays;
+  final int overtimeMinutes;
+
+  factory _MonthlyScanStats.fromSummaries(List<_DailyScanSummary> summaries) {
+    var lateDays = 0;
+    var lateMinutes = 0;
+    var earlyLeaveDays = 0;
+    var earlyLeaveMinutes = 0;
+    var overtimeDays = 0;
+    var overtimeMinutes = 0;
+
+    for (final day in summaries) {
+      var hasLate = false;
+      var hasEarly = false;
+      var hasOt = false;
+      for (final s in day.chronologicalScans) {
+        final l = _positiveMinutes(s['lateMinutes']);
+        if (l != null) {
+          lateMinutes += l;
+          hasLate = true;
+        }
+        final e = _positiveMinutes(s['earlyLeaveMinutes']);
+        if (e != null) {
+          earlyLeaveMinutes += e;
+          hasEarly = true;
+        }
+        final ot = _positiveMinutes(s['overTime']);
+        if (ot != null) {
+          overtimeMinutes += ot;
+          hasOt = true;
+        }
+      }
+      if (hasLate) lateDays++;
+      if (hasEarly) earlyLeaveDays++;
+      if (hasOt) overtimeDays++;
+    }
+
+    return _MonthlyScanStats(
+      workDays: summaries.length,
+      lateDays: lateDays,
+      lateMinutes: lateMinutes,
+      earlyLeaveDays: earlyLeaveDays,
+      earlyLeaveMinutes: earlyLeaveMinutes,
+      overtimeDays: overtimeDays,
+      overtimeMinutes: overtimeMinutes,
+    );
+  }
+
+  static bool matchesFilter(
+    _DailyScanSummary summary,
+    _HistoryScanFilter filter,
+  ) {
+    switch (filter) {
+      case _HistoryScanFilter.all:
+        return true;
+      case _HistoryScanFilter.late:
+        return summary.chronologicalScans.any(
+          (s) => _positiveMinutes(s['lateMinutes']) != null,
+        );
+      case _HistoryScanFilter.earlyLeave:
+        return summary.chronologicalScans.any(
+          (s) => _positiveMinutes(s['earlyLeaveMinutes']) != null,
+        );
+      case _HistoryScanFilter.overtime:
+        return summary.chronologicalScans.any(
+          (s) => _positiveMinutes(s['overTime']) != null,
+        );
+    }
+  }
+}
+
+class _MonthlyScanStatsGrid extends StatelessWidget {
+  const _MonthlyScanStatsGrid({
+    required this.stats,
+    required this.activeFilter,
+    required this.onToggleFilter,
+  });
+
+  final _MonthlyScanStats stats;
+  final _HistoryScanFilter activeFilter;
+  final ValueChanged<_HistoryScanFilter> onToggleFilter;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      key: const Key('history-monthly-stats-grid'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _StatInsightTile(
+                icon: Icons.event_available_rounded,
+                accentColor: AppColors.secondary,
+                label: AppStrings.t('Work days', 'วันทำงาน', 'Hari bekerja'),
+                value: '${stats.workDays}',
+                subtitle: AppStrings.t(
+                  stats.workDays == 1 ? 'day recorded' : 'days recorded',
+                  'วันที่มีสแกน',
+                  'hari direkod',
+                ),
+                selected: false,
+                onTap: activeFilter != _HistoryScanFilter.all
+                    ? () => onToggleFilter(_HistoryScanFilter.all)
+                    : null,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _StatInsightTile(
+                icon: Icons.schedule_rounded,
+                accentColor: stats.lateDays > 0
+                    ? AppColors.warning
+                    : AppColors.secondary,
+                label: AppStrings.t('Late', 'มาสาย', 'Lewat'),
+                value: stats.lateDays > 0 ? '${stats.lateDays}x' : '0',
+                subtitle: stats.lateDays > 0
+                    ? (AppStrings.isThai
+                          ? '${stats.lateMinutes} นาที · แตะกรอง'
+                          : '${stats.lateMinutes}m · tap to filter')
+                    : AppStrings.t('On time', 'ตรงเวลา', 'Tepat masa'),
+                selected: activeFilter == _HistoryScanFilter.late,
+                onTap: stats.lateDays > 0
+                    ? () => onToggleFilter(_HistoryScanFilter.late)
+                    : null,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _StatInsightTile(
+                icon: Icons.exit_to_app_rounded,
+                accentColor: stats.earlyLeaveDays > 0
+                    ? AppColors.warning
+                    : AppColors.textSecondary,
+                label: AppStrings.t(
+                  'Early leave',
+                  'ออกก่อนเวลา',
+                  'Pulang awal',
+                ),
+                value: stats.earlyLeaveDays > 0
+                    ? '${stats.earlyLeaveDays}x'
+                    : '0',
+                subtitle: stats.earlyLeaveDays > 0
+                    ? (AppStrings.isThai
+                          ? '${stats.earlyLeaveMinutes} นาที · แตะกรอง'
+                          : '${stats.earlyLeaveMinutes}m · tap to filter')
+                    : AppStrings.t('None', 'ไม่มี', 'Tiada'),
+                selected: activeFilter == _HistoryScanFilter.earlyLeave,
+                onTap: stats.earlyLeaveDays > 0
+                    ? () => onToggleFilter(_HistoryScanFilter.earlyLeave)
+                    : null,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _StatInsightTile(
+                icon: Icons.bolt_rounded,
+                accentColor: stats.overtimeMinutes > 0
+                    ? AppColors.secondary
+                    : AppColors.textSecondary,
+                label: AppStrings.t('Overtime', 'ล่วงเวลา', 'Lebih masa'),
+                value: stats.overtimeMinutes > 0
+                    ? AppStrings.formatHoursMinutes(stats.overtimeMinutes)
+                    : '0m',
+                subtitle: stats.overtimeDays > 0
+                    ? (AppStrings.isThai
+                          ? '${stats.overtimeDays} วัน · แตะกรอง'
+                          : '${stats.overtimeDays}d · tap to filter')
+                    : AppStrings.t('None', 'ไม่มี', 'Tiada'),
+                selected: activeFilter == _HistoryScanFilter.overtime,
+                onTap: stats.overtimeDays > 0
+                    ? () => onToggleFilter(_HistoryScanFilter.overtime)
+                    : null,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _StatInsightTile extends StatelessWidget {
+  const _StatInsightTile({
+    required this.icon,
+    required this.accentColor,
+    required this.label,
+    required this.value,
+    required this.subtitle,
+    required this.selected,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final Color accentColor;
+  final String label;
+  final String value;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(AppRadius.input),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.input),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.input),
+            border: Border.all(
+              color: selected ? accentColor : AppColors.cardBorder,
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, size: 18, color: accentColor),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label.toUpperCase(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.4,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.neutral,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

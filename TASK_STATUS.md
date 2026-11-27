@@ -1,6 +1,6 @@
 # สถานะงาน Cirrus EMS
 
-อัปเดตล่าสุด: 26 พฤศจิกายน 2026 (โหมดช่าง Check-In → Break พัก/จบงานเลย → Check-Out + หน้ารายงานการทำงานแนบรูปถ่ายสูงสุด 4 รูปและช่องกรอกปัญหาที่พบ + หน้าประวัติรายงานช่าง)
+อัปเดตล่าสุด: 27 พฤศจิกายน 2026 (ลดขนาด APK และพื้นที่ติดตั้งบนมือถือด้วย R8 + shrinkResources + split-per-abi + obfuscate + ตัด asset/dependency ที่ไม่ได้ใช้ เหลือ ~22 MB ต่อเครื่อง)
 
 ภาพรวมและวิธีรันดู [README.md](README.md) — ไฟล์นี้เป็นแหล่งหลักสำหรับสถานะงาน แยกสิ่งที่มีในโค้ดออกจากสิ่งที่ตรวจบนระบบจริงแล้ว กติกาการทำงานและคำสั่งสำคัญดู [AGENTS.md](AGENTS.md) แนวทาง UI ดู [DESIGN.md](DESIGN.md)
 
@@ -16,7 +16,7 @@
 | ADB | `"$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"` |
 | Package | `com.cirrusgroup.ems` / `.MainActivity` |
 | Backend | `https://api.cirrusmarine.site/api/v1/ems` (Android / Web / iOS ผ่าน HTTPS โดยตรง) |
-| APK ล่าสุด | `build\app\outputs\flutter-apk\app-profile.apk` (build 26 พ.ย. 2026 แบบ AOT 60fps, ชี้ `.env` ไป `https://api.cirrusmarine.site/api/v1/ems`) |
+| APK ล่าสุด | `build\app\outputs\flutter-apk\app-arm64-v8a-release.apk` (21.96 MB) / `app-armeabi-v7a-release.apk` (20.13 MB) / `app-x86_64-release.apk` (23.35 MB) (ลดจาก `app-profile.apk` 113.92 MB / `app-debug.apk` 163.82 MB) |
 | Screenshots | `.oil-ui/screenshots/*.png` |
 
 ---
@@ -833,11 +833,32 @@
   - ปรับหน้า `ALL JOB CODES` (`lib/screens/technician_jobs_screen.dart`, `lib/services/technician_service.dart`, `lib/widgets/technician_attendance_section.dart`) แยกสถานะงานแบบ 3 กรณี: (1) ซ่อนงานที่ Backend ปิดแล้ว (`completed`/`closed`/`cancelled`), (2) ย้ายงานที่ช่างส่งรายงานเสร็จแล้ว (`Completed`) แต่เว็บยัง `OPEN` ไปอยู่หมวดล่าง **`SUBMITTED · AWAITING CLOSE`** พร้อมป้ายเขียว `REPORT SUBMITTED ✓` และล็อกไม่ให้กด Check-In ซ้ำ, (3) งานที่ส่งรายงานแบบ `In Progress` ยังอยู่ด้านบนเพื่อทำต่อได้ (เพิ่มเทสต์ใน `test/technician_attendance_test.dart`)
   - ปรับปุ่มโหมดช่างใน `TechnicianJobActionZone` (`lib/widgets/technician_attendance_section.dart`, `lib/screens/attendance_screen.dart`): หากช่างสแกนเข้างานวันนี้แล้ว (เช่น สแกนจากเครื่องสแกนนิ้ว) ปุ่มจะเปลี่ยนจาก **`Check In / เช็คอิน`** เป็น **`Start Job / เริ่มงาน`** อัตโนมัติ (เพิ่มเทสต์ใน `test/technician_attendance_test.dart`)
   - อัปเดตเทสต์กล้องเก่าที่ยังคาดหวังข้อความ `'Confirm'` ให้ตรงกับปุ่ม `'Use Photo'` ใน `test/attendance_camera_switching_test.dart` และ `test/attendance_screen_checkin_test.dart` และเพิ่มเทสต์ใน `test/settings_screen_test.dart` (Haptics, Clear Cache, DeviceCheckScreen)
+  - **ลดขนาดแอปบนมือถือ (App Size Optimization) โดยคงคุณภาพ UI/ฟีเจอร์เดิม 100%:**
+    - ตัด dependency ที่ไม่ได้ใช้งาน (`cupertino_icons`, `flutter_animate`) และ asset ที่ไม่ได้อ้างอิง (`lib/assets/Cirrus_app_logo.png`) ออกจาก `pubspec.yaml`
+    - เปิด R8 code shrinking (`isMinifyEnabled = true`), resource shrinking (`isShrinkResources = true`), `localeFilters += listOf("en", "th", "ms")` และ `packaging.jniLibs.useLegacyPackaging = false` ใน `android/app/build.gradle.kts` พร้อม `android/app/proguard-rules.pro` (fallback ไปใช้ debug keystore เมื่อไม่มี `android/key.properties` สำหรับ build release ทดสอบในเครื่อง)
+    - Build แบบ `--release --split-per-abi --obfuscate --split-debug-info=build/app/outputs/symbols` พร้อม `--tree-shake-icons` (ลด `MaterialIcons-Regular.otf` จาก 1,645,184 bytes เหลือ 22,192 bytes, ลดลง 98.7%)
+  - **แจ้งเตือนไปสแกนเข้างาน + ล็อกหน้ารายงานการทำงานแบบเข้มงวด:**
+    - แก้ `_hasScannedAttendanceToday` ใน `lib/screens/attendance_screen.dart` ให้ตรวจ `workDate`/`scannedAt` ของวันนี้จริง (ไม่ดึงสแกนค้างจากวันก่อนมาขึ้นปุ่ม `Start Job`), เพิ่มข้อความเตือนสแกนเข้างานใน SnackBar เมื่อมี Job Code ใหม่เข้า และเพิ่มแบนเนอร์ `technician-scan-reminder-banner` ใน `lib/widgets/technician_attendance_section.dart` แสดงตลอดเมื่อวันนี้ยังไม่ได้สแกนเข้างาน (ทั้งกรณีมี Job Code และยังไม่มี Job Code) พร้อมแปลข้อความ error `MORNING_IN` ใน `lib/l10n/app_strings.dart`
+    - ล็อกหน้ารายงานการทำงานแบบเข้มงวด: `PopScope(canPop: false)` บน `pending-report-startup-dialog`, ซ่อนปุ่ม Back บน AppBar และบล็อก `PopScope` (`report-locked-snackbar`) ใน `lib/screens/technician_report_screen.dart` จนกว่าจะส่งรายงานสำเร็จ, เปิดผ่าน `rootNavigator: true` พร้อม `_reportScreenOpen` กัน background poll ซ้อน และเพิ่ม `WidgetsBindingObserver` flush ร่างรายงานทันทีเมื่อแอปเข้า `inactive`/`paused` (รองรับกรณีปัดแอปทิ้ง)
+  - **แจ้งเตือนจับเวลาทำงานสดบนแถบ Status Bar / Notification ของ Android (`Chronometer`):**
+    - เพิ่ม `MethodChannel('com.cirrusgroup.ems/work_timer')` ใน `android/app/src/main/kotlin/com/cirrusgroup/ems/MainActivity.kt` และสิทธิ์ `POST_NOTIFICATIONS` ใน `android/app/src/main/AndroidManifest.xml` (ขอสิทธิ์อัตโนมัติบน Android 13+) แสดง notification แบบ `setUsesChronometer(true)` + `setOngoing(true)` นับเวลาต่อเนื่องตาม `checkInAt` ของ `activeSession` แม้พับแอป
+    - สร้าง `lib/services/work_timer_notification_service.dart` และเชื่อมใน `lib/screens/attendance_screen.dart` (แสดงเมื่อมี `activeSession`, ยกเลิกเมื่อ `Break` / `Check Out`) และ `lib/screens/profile_screen.dart` (ยกเลิกเมื่อ Log Out)
+  - **ชุดไฟล์ SQL Migration & API Spec สำหรับทีม Backend (`sql/`):**
+    - สร้าง `sql/001_employee_payroll_items.sql` (idempotent migration สร้างตาราง `hr.employee_payroll_items` + index + seed component มาตรฐาน 3 ตัวใน `hr.payroll_components`)
+    - สร้าง `sql/PAYROLL_API_SPEC.md` (สเปก 6 endpoints และ RBAC สำหรับเชื่อมเมนู `Payroll & Deductions`)
+  - **ปรับ UI หน้า Local Leave (`lib/screens/leave_trial_tab.dart`, `lib/screens/leave_drafts_screen.dart`):** ลบปุ่ม `View all drafts` ซ้ำซ้อนด้านล่างออก คงไว้เฉพาะลิงก์ `View all (N) >` ด้านบนหัวข้อ `YOUR LEAVE DRAFTS`, ซ่อนปุ่ม `Cancel draft` พร้อมแสดงป้าย `Passed / ผ่านวันที่ลาแล้ว` สำหรับใบลาที่ผ่านวันที่ลาไปแล้ว, แยกการ์ดหัวข้อ `AmbientPanel` ออกจากฟอร์ม `Card` ไม่ให้ซ้อนขอบ, เปลี่ยน `One day` เป็น `Switch.adaptive` พร้อมซ่อนช่อง `End date` เมื่อเลือกวันเดียว, จัดชิปเหตุผลให้อยู่แถวเดียวเลื่อนแนวนอนได้ และปรับปุ่ม `View PDF` เป็น `OutlinedButton.icon` ทรง pill
+  - **QoL ใช้งานจริง (`lib/screens/technician_report_screen.dart`, `lib/screens/main_shell.dart`, `lib/screens/profile_screen.dart`):** แสดงความคืบหน้าการอัปโหลดรูปทีละรูป (`กำลังอัปโหลดรูป 1/4...`) บนปุ่มส่งรายงาน, เพิ่ม `PopScope` กันเผลอปัดขอบจอกลับในหน้าหลัก (`กดย้อนกลับอีกครั้งเพื่อออกจากแอป` ภายใน 2 วินาที), และแสดง Dialog โหลดแจ้งชื่อบัญชีระหว่างสลับบัญชี (`ท่านกำลังสลับไปใช้บัญชี ...`)
+  - **สรุปสถิติการเข้างานรายเดือนบนหน้า History (`lib/screens/history_screen.dart`):** เพิ่มการ์ด Insights 2×2 (`Work days`, `Late`, `Early leave`, `Overtime`) ใต้การ์ดชั่วโมงทำงาน พร้อมแตะกรองวันที่มีสาย/ออกก่อน/OT, ปุ่มลัด `This month / เดือนนี้` ใต้ตัวเลือกเดือน, และป้ายสรุปบนการ์ดรายวัน (`Late` / `Early leave (HH:mm)` / `OT`)
+  - **ดึงฐานเงินเดือนจาก `GET /compensation` (`lib/services/payroll_service.dart`, `lib/screens/earnings_trial_tab.dart`):** ให้ `PayrollService.getMyPayrollConfig()` ข้าม `GET /payroll/my-config` บนเซิร์ฟเวอร์จริง (เรียกเฉพาะ Local Bridge) เพื่อไม่ให้ไปชน route `@Get('payroll/:id')` จนเกิด error `invalid input syntax for type uuid: "my-config"` และยิง `GET /compensation` ตรงแทน (เพิ่มเทสต์ใน `test/payroll_management_test.dart`)
+  - **ข้อมูลเรือและอุปกรณ์ในหน้า Job Details (`lib/services/technician_service.dart`, `lib/screens/technician_jobs_screen.dart`):** ดึงรายละเอียดเรือ (`/vessels`) และอุปกรณ์ (`/assets`) มาแสดงเป็นการ์ด `VESSEL & EQUIPMENT` ใน `TechnicianJobDetailScreen` (ประเภทเรือ, รุ่น, ทะเบียน/IMO, ชื่ออุปกรณ์, รุ่น, Serial No.) พร้อมเพิ่มเทสต์ใน `test/technician_attendance_test.dart`
+  - **แจ้งเตือน Job Code ใหม่แบบ Heads-Up + สั่น (`MainActivity.kt`, `AndroidManifest.xml`, `work_timer_notification_service.dart`, `attendance_screen.dart`):** เพิ่มช่อง Notification `cirrus_new_jobs` (`IMPORTANCE_HIGH` + `VIBRATE`) เด้งเตือนพร้อมสั่นแม้อยู่นอกแอป/พับแอป/ล็อกจอ (แตะเปิดเข้าหน้างานได้ทันที)
+  - **กำหนดส่งรายงานก่อน 07:00 น. วันถัดไป + นับนาทีสาย (`technician_service.dart`, `technician_report_screen.dart`, `attendance_screen.dart`):** เพิ่ม `reportDeadlineLocal`, `reportLateMinutes()`, `reportRemainingTime()` บน `TechnicianWorkSession`, แสดงแบนเนอร์เตือนเวลาที่เหลือหรือจำนวนนาทีที่เกิน 07:00 น. บนหน้ารายงานและ Dialog เปิดแอป และแนบ `[ส่งรายงานช้า / Late Report: +N min]` ใน `workDescription` เมื่อเกินกำหนด (เพิ่ม unit/widget tests ใน `test/technician_attendance_test.dart`)
 - **ตรวจแล้ว:**
-  - `F:\bin\flutter.bat analyze --no-fatal-infos lib/`: 0 error, 0 warning, 0 non-`material.dart` issues ทั้งโฟลเดอร์ `lib/`
-  - `F:\bin\flutter.bat test` (ทั้งโปรเจกต์): ผ่าน 148 ข้อ, ข้าม 1 ข้อ (`~1`), 0 ข้อล้มเหลว
-  - Build `app-profile.apk` (113.6MB) และติดตั้ง + เปิดแอปบน `emulator-5554` สำเร็จ
-- **ตรวจ `README.md`:** ตรวจแล้วไม่มีผลกระทบต่อภาพรวม
+  - `F:\bin\flutter.bat analyze --no-fatal-infos`: 0 error, 0 warning (มีเฉพาะ SDK `material.dart` deprecation info)
+  - `F:\bin\flutter.bat test test\technician_attendance_test.dart`: ผ่านครบ **16/16** ข้อ (รวมเทสต์แบนเนอร์เตือนสแกนทั้งมีงานและไม่มีงาน + เทสต์ล็อกหน้ารายงาน)
+  - Build split release APK: `app-arm64-v8a-release.apk` **22.0 MB**, `app-armeabi-v7a-release.apk` **20.1 MB**, `app-x86_64-release.apk` **23.4 MB**
+  - ติดตั้ง `app-x86_64-release.apk` และเปิดแอปบน `emulator-5554` สำเร็จ ไม่มี `FATAL EXCEPTION` / `ClassNotFoundException` / `NoSuchMethodError` ใน logcat
+- **ตรวจ `README.md`:** ตรวจแล้วไม่มีผลกระทบต่อภาพรวม (`อัปเดตล่าสุด: 27 พฤศจิกายน 2026` ตรงแล้ว)
 
 ### 26 พฤศจิกายน 2026 — โหมดช่าง Check-In / Break พัก / Check-Out + แนบรูปและปัญหาที่พบในหน้ารายงานการทำงาน
 
