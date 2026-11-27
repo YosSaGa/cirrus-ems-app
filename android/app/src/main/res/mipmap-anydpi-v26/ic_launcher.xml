@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- claude_prompt.txt (Replace Android Launcher Icon with the Existing
+     Cirrus Logo): standard Android adaptive-icon definition (API 26+),
+     only used on devices/launchers that support it. Devices below API 26
+     fall back to the plain android/app/src/main/res/mipmap-*dpi/ic_launcher.png
+     files automatically, no manifest change needed for that fallback.
+     android:roundIcon is not referenced anywhere in AndroidManifest.xml, so
+     no separate ic_launcher_round variant was added. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background"/>
+    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+</adaptive-icon>

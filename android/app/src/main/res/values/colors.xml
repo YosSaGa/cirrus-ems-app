@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- claude_prompt.txt (Replace Android Launcher Icon with the Existing
+         Cirrus Logo): sampled directly from lib/assets/Cirrus_app_logo.svg's
+         own background path fill (#0F3649), not a new color choice, reused
+         as is so the adaptive-icon background layer matches the flat legacy
+         icon exactly. -->
+    <color name="ic_launcher_background">#0F3649</color>
+</resources>
