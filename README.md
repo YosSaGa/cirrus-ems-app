@@ -1,218 +1,67 @@
-# Cirrus EMS — แอปลงเวลาพนักงาน
+# Cirrus EMS
 
-อัปเดตล่าสุด: 26 พฤศจิกายน 2026
+แอปลงเวลาทำงานและติดตามงานภาคสนามสำหรับพนักงานและช่างของ Cirrus Group (Flutter / Dart) เชื่อมต่อกับ EMS Backend ภายนอก
 
-ธีมล่าสุดใช้ขาวนวลอมเทา 60% / deep navy 30% / turquoise 10% โดยประมาณ พร้อมปุ่มลงเวลาวงกลมใหญ่สี turquoise ขอบ deep navy เมื่อเปิดลงเวลา และ desktop panel ที่กระชับขึ้น รายละเอียดอยู่ใน DESIGN.md เครื่องมือออกแบบใช้ Python แบบ portable ที่ `.tools/python/python.exe` (ไม่จำเป็นสำหรับรันแอป)
-
-ปรับตามภาพอ้างอิงล่าสุดโดยเน้นตัวเลขเวลา/ยอดเงินขนาดใหญ่ บล็อกข้อมูลที่อ่านชัด และปุ่มลงเวลา turquoise โดยใช้ข้อมูลและสูตรเดิม
-
-ภาพอ้างอิงแนว soft ล่าสุดนำมาใช้กับการ์ดซ้อน พื้นหลัง navy ไล่แสง turquoise และเมนูแคปซูลสีอ่อน วาดด้วย Flutter โดยตรง ไม่ต้องเพิ่ม dependency หรือเครื่องมือ 3D
-
-หน้าเปิดแอป (`SplashScreen`) ใช้ **Animated Welcome Splash 3 จังหวะ (1.25 วินาที, 60fps)** พร้อมพื้นหลัง Deep Navy radial glow, โลโก้ Cirrus เด้งขยายพร้อมวงแหวนแสง Turquoise แผ่ระลอก และแถบโหลดก่อนเฟดเข้าหน้าหลักหรือหน้า Login ส่วนหน้า Login ใช้แผง deep navy เต็มความกว้างบนมือถือ พร้อมหน้าปัดวาดด้วย Flutter และฟอร์มพื้นขาวนวลที่เลื่อนได้เมื่อคีย์บอร์ดเปิด เดสก์ท็อปวางแผงแบรนด์และฟอร์มเคียงกัน การเข้าสู่ระบบและออกจากระบบแสดงปุ่มหมุนพร้อมข้อความสถานะขั้นต่ำ **700 ms** + Haptic Feedback ก่อนเฟดเปลี่ยนหน้า **260 ms** และข้ามการหน่วง/เฟดอัตโนมัติเมื่อระบบเปิดการลดการเคลื่อนไหว
-
-แอปใช้ฟอนต์ Bebas Neue เป็นหลักในโหมดภาษาอังกฤษ (พร้อม fallback `IBMPlexSansThai` และ `Sarabun`) และสลับไปใช้ฟอนต์ **IBM Plex Sans Thai** (4 น้ำหนัก) เป็นฟอนต์หลักโดยอัตโนมัติเมื่อผู้ใช้เปลี่ยนภาษาเป็นภาษาไทยผ่าน **Settings > Language** โดยคง `Sarabun` สำหรับการสร้าง PDF ใบลาไว้ตามเดิม
-
-PDF ใบลารองรับ **2 ภาษา (`แบบฟอร์มไทย TH` / `English Form EN`)** สลับดูตัวอย่างสดและเลือกดาวน์โหลดหรือแชร์ได้ในหน้า PDF Preview (ตั้งชื่อไฟล์ `ใบลา_<รหัสพนักงาน>.pdf` / `ใบลา_<รหัสพนักงาน>_EN.pdf` ขนาดกระดาษ A4) โดย **แบบฟอร์มไทย** ใช้ฟอนต์ TH Sarabun PSK จัดโครงตามแบบฟอร์มใบลาทางการไทย (หัวเรื่อง `แบบฟอร์มใบลา`, เขียนที่/วันที่ พ.ศ., เรื่อง, เติมอัตโนมัติ **`เรียน หัวหน้าฝ่ายทรัพยากรบุคคล`**, `ข้าพเจ้า / ตำแหน่ง` และ `แผนก / รหัสพนักงาน`, ช่องติ๊กประเภทลาอัตโนมัติ + เหตุผล, ช่วงวันที่–รวมวัน, ขอแสดงความนับถือ/ลงชื่อ, ความคิดเห็นผู้บังคับบัญชา + ลงชื่อ/วันที่) ส่วน **แบบฟอร์มอังกฤษ** ใช้เลย์เอาต์ Formal Leave Request พร้อมเติมอัตโนมัติ `To (Approver): HR Manager` ระยะลาเป็นวันเต็ม และหน้า PDF Preview มีปุ่มแยกครบ 3 คำสั่ง: **Print** (เปิดหน้าต่างพิมพ์ขนาด A4), **Download** (บันทึกลง Downloads folder โดยตรง) และ **Share** (เปิด share sheet ของระบบ)
-
-แท็บ Pay estimate แสดงยอดประมาณการของเดือนในรูปแบบ **Wallet Card** ธีม Cirrus พร้อม EMV chip, รหัสพนักงานจริง (`EMP CODE`) และแอนิเมชัน **แตะพลิกการ์ด 3D** เพื่อดูข้อมูลหลังการ์ด (`BASE SALARY`, `DEPARTMENT`, `EMPLOYMENT`, `START DATE`) โดยคำนวณอัตราค่าแรงต่อชั่วโมงจาก **`ฐานเงินเดือน ÷ 30 วัน ÷ 8 ชม.`** (และ fallback ไปใช้อัตราทดลอง `300 บาท / 8 ชม.` เมื่อพนักงานยังไม่มีค่าฐานเงินเดือนในระบบ) คูณกับชั่วโมงที่สแกนครบคู่ก่อน 17:00 น. พร้อมแยกเวลาโบนัสหลัง 17:00 น. และมีการ์ดเมนู **Pay Simulator / คำนวณค่าแรงเอง** ใต้ `How this is calculated` สำหรับจำลองปรับเงินเดือน วันฐาน (`30 / 26 / 22` วัน) และชั่วโมงทำงานฝั่งเครื่องโดยไม่กระทบฐานข้อมูล ส่วน Local leave รวมคำอธิบายและฟอร์มไว้ในการ์ดเดียว แสดงแบบร่างล่าสุด 2 ใบพร้อมปุ่ม `View all` เปิดหน้าแยก `All Leave Drafts` ที่กรองสถานะ `All / Active / Cancelled` ได้
-
-เมื่อเปิด How this is calculated จะแสดงสมการและยอดประมาณการแบบย่อ หากมีวันที่ต้องตรวจสแกน แตะเปิดรายการเพิ่มเติมได้
-
-หน้า Profile แสดงชื่อ อีเมล และบทบาทบนการ์ดสีกรมกลุ่มเดียวกับหน้า Attendance ส่วน Account & Employment เรียงรหัสพนักงาน เบอร์โทร และรหัสผู้ใช้ โดยมีปุ่มคัดลอกสำหรับค่าที่มีข้อมูล และเปิดใช้งาน Settings แล้วโดยเป็นเมนูการตั้งค่า (Preferences, System, Management เฉพาะสิทธิ์, About) ที่มีเมนูย่อย **App Theme** สำหรับปรับแต่งธีมแอปได้ 3 แบบ (Default, White, Black), **Language** สำหรับสลับภาษาแสดงผล **English / ภาษาไทย / Bahasa Melayu** พร้อมฟอนต์ IBM Plex Sans Thai และ **Payroll & Deductions** (แสดงเฉพาะสิทธิ์ `HR Officer`, `Admin`, `Accountant`, `Owner`) สำหรับตั้งค่าเรทต่อชั่วโมงและเพิ่ม/ลบ/แก้ไขรายการหัก (ค่าที่พัก, ประกันสังคม, ค่าประกันงาน) ลงฐานข้อมูล PostgreSQL `cirrus_02` รวมถึง **Job & Report History** (แสดงเฉพาะสิทธิ์ `Technician` และ `Admin`) สำหรับดูประวัติงานที่ทำและรายงานช่างย้อนหลัง
-
-Bottom Navigation บนมือถือใช้วงกลมไอคอนลอยเหนือรอยเว้า โดยวงกลมจะยุบตัวลงในรอยเว้าขณะเคลื่อนที่และเด้งขึ้นที่ปลายทางตาม Dribbble Concept พร้อมตัดการแสดงไอคอนซ้ำซ้อน รองรับการกดสลับเร็วและโหมดลดแอนิเมชันของระบบ เมนู desktop ยังคงเป็นแถบด้านข้าง
-
-ปุ่มหลักหน้า Attendance แสดง Check In/Check Out พร้อมชื่อช่วงเวลาข้างใต้ หากลงเวลาแล้วปุ่มยังแสดงพร้อมเครื่องหมายถูกและข้อความ Already recorded โดยปิดการส่งซ้ำ
-
-เมื่อสลับแท็บ หน้าจอกลับไปด้านบนโดยคงข้อมูลเดิม หน้า History แสดงประวัติสแกนล่าสุด 4 วันของเดือนที่เลือกก่อน กด View all เพื่อดูทั้งหมด และ Show less เพื่อย่อรายการได้
-
-หน้า Attendance ใช้ไทม์ไลน์สี่ช่วง จุด turquoise ระบุช่วงปัจจุบัน และเครื่องหมายถูกระบุช่วงที่บันทึกแล้ว หลังบันทึกจะแสดงชื่อช่วงถัดไปเมื่อระบุได้ ข้อมูลสถานะพนักงานยังไม่มีเวลาเปิดรอบ การ์ด Today’s Activity แสดงเวลาสแกนล่าสุดและเหตุผลเมื่อไม่นับรายการ **สำหรับบัญชีที่มี Role `Technician` (ช่าง) หรือ `Admin`** หน้า Attendance จะแสดงป้ายโหมดช่างและการ์ดเลือก **Job Code** เมื่อแตะจะเปิดหน้ารายการ Job Code ทั้งหมด (โดยปักหมุดและไฮไลต์ **งานของตัวเอง (`YOUR JOB`)** ไว้บนสุด) และใช้ flow **Check In → Break พัก (พร้อมปุ่ม "จะจบงานเลยไหม?" / กลับมาทำงานต่อ) → Check Out** ลง `hr.work_sessions` ควบคู่กับ `hr.device_scans` โดยหลังจบงานจะเด้งไปหน้า **เขียนรายงานการทำงาน (`TechnicianReportScreen`)** ที่รองรับการ **ถ่ายรูปการทำงานแนบได้สูงสุด 4 รูป** และกรอก **ปัญหาที่พบระหว่างทำงาน** บันทึกลง `operations.technician_reports` พร้อมล็อกไม่ให้เลือกหรือเช็คอินงานถัดไปจนกว่าจะส่งรายงานเรียบร้อย (และคงเงื่อนไข OT/Bonus หลัง 17:00 เดิม)
-
-เอกสารหลักสองไฟล์: **README.md** อธิบายโปรเจคและการใช้งาน ส่วน **[TASK_STATUS.md](TASK_STATUS.md)** บันทึกงานที่ทำแล้ว งานค้าง และผลตรวจสอบ อัปเดตสองไฟล์นี้หลังมีการเปลี่ยนแปลงตามกติกาใน [AGENTS.md](AGENTS.md)
-
-แผนที่โฟลเดอร์และหน้าที่ไฟล์สำหรับผู้พัฒนาและ AI agent อยู่ใน [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)
-
-ปรับ UI ด้วย Oil UI เมื่อ 20 พฤศจิกายน 2026: ธีม navy/teal, หน้าลงเวลา, navigation และฟอร์มที่อ่านง่ายขึ้น โดยคง API และพฤติกรรมเดิม ดูแนวทางและผลตรวจใน [DESIGN.md](DESIGN.md)
-
-โปรเจคนี้เป็นแอป Flutter/Dart สำหรับพนักงานใช้ลงเวลาทำงานในระบบ Cirrus EMS โดยถ่ายรูปประกอบการลงเวลา แนบพิกัดเมื่ออุปกรณ์อนุญาต และดูประวัติกับสรุปการทำงานรายเดือน ชื่อแพ็กเกจใน `pubspec.yaml` คือ `cirrus_app`
-
-โฟลเดอร์นี้มีโค้ดฝั่งแอป ไม่ได้รวม Backend หรือฐานข้อมูล การเข้าสู่ระบบ ลงเวลา อัปโหลดรูป และอ่านประวัติต้องเชื่อมต่อ EMS API ที่เตรียมไว้แยกต่างหาก
-
-เอกสารนี้อธิบายความสามารถปัจจุบันของแอป งานที่ยังไม่ทำและข้อเสนอในอนาคตดูใน TASK_STATUS.md
+อัปเดตล่าสุด: 27 พฤศจิกายน 2026
 
 ---
 
-## Quick Start สำหรับ Agent ที่มาต่องาน
+## ฟีเจอร์หลัก
 
-> อ่านส่วนนี้ก่อนเริ่มทุกครั้ง จากนั้นอ่าน [TASK_STATUS.md](TASK_STATUS.md) และ [AGENTS.md](AGENTS.md) เพื่อทราบสถานะและกติกาที่ต้องรักษา
-
-### คำสั่งที่ใช้บ่อย
-
-```powershell
-# ทดสอบ
-F:\bin\flutter.bat test test/app_bottom_nav_test.dart test/ui_refresh_test.dart test/widget_test.dart
-
-# วิเคราะห์ไฟล์ที่แก้
-F:\bin\flutter.bat analyze lib/screens/history_screen.dart lib/screens/profile_screen.dart
-
-# Build APK
-F:\bin\flutter.bat build apk --debug -t lib/main.dart
-
-# ติดตั้งบน Emulator
-& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" -s emulator-5554 install -r build\app\outputs\flutter-apk\app-debug.apk
-
-# Screenshot จาก Emulator
-$adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
-& $adb -s emulator-5554 shell screencap -p /sdcard/screen.png
-& $adb -s emulator-5554 pull /sdcard/screen.png .oil-ui/screenshots/screen.png
-
-# เปิดแอป
-& $adb -s emulator-5554 shell am start -n com.cirrusgroup.ems/.MainActivity
-```
-
-### Bottom Nav tap coordinates (y ≈ 2800 บนหน้าจอ 1344×2992)
-| แท็บ | x |
-|---|---|
-| Attendance | 168 |
-| History | 504 |
-| Pay & Leave | 840 |
-| Profile | 1176 |
-
-### ก่อน alias `F:` พร้อมใช้ หากยังไม่มี
-```powershell
-subst F: "C:\Users\yossa\OneDrive\เอกสาร\CostCal\.tools\flutter"
-```
+- **Attendance:** ลงเวลาเข้า–ออกงานพร้อมถ่ายรูปและแนบพิกัด GPS, ไทม์ไลน์ 4 ช่วงเวลา, จัดการเวลาออกค้าง และส่งรายการค้างซ้ำอัตโนมัติ
+- **Technician Mode:** สำหรับสิทธิ์ `Technician` / `Admin` — เลือก Job Code (ปักหมุดงานตัวเองพร้อมชื่อเรือและโปรเจกต์), จับเวลาทำงานจริง, พักเบรก/จบงาน และเขียนรายงานการทำงานแนบรูปสูงสุด 4 รูป (Auto-Save ร่างอัตโนมัติ)
+- **History:** ดูประวัติสแกนและการมาทำงานรายเดือนพร้อมสรุปชั่วโมงที่ใช้คำนวณค่าแรง
+- **Pay & Leave:** ประมาณการค่าแรงจากสแกน (`ฐานเงินเดือน ÷ 30 ÷ 8` หรือเรทต่อชม.), Pay Simulator, จัดการเรท/รายการหัก (เฉพาะ HR/Admin/Accountant), และแบบร่างใบลาในเครื่องพร้อมส่งออก PDF 2 ภาษา (TH/EN)
+- **Profile & Switch Account:** แสดงข้อมูลพนักงาน, สลับบัญชีด่วน 3 บัญชีล่าสุด พร้อมหน้าดู/ค้นหาบัญชีทั้งหมด
+- **Settings:** 3 ธีม (Default / Pure White / Obsidian Black), 3 ภาษา (EN / TH / MY), ขนาดตัวอักษร 4 ระดับ (ถึง XL), Device & Connection Check, Haptic Feedback / New Job Alerts และ Storage & Cache
 
 ---
 
-## ความสามารถที่มีในโค้ด
+## Tech Stack
 
-- **เข้าสู่ระบบ:** ใช้ชื่อผู้ใช้และรหัสผ่าน เก็บ token และข้อมูลผู้ใช้ใน `SharedPreferences` พร้อมตรวจสอบ session ตอนเปิดแอป บน Web มีเส้นทางกู้คืน session ผ่าน SSO และ cookie
-- **ลงเวลา:** แสดงสถานะและช่วงเวลาจาก Backend ถ่ายรูปด้วยกล้องในแอป สลับกล้อง อัปโหลดรูป แล้วส่ง attendance event พร้อมพิกัดหากหาได้
-- **ส่งรายการค้างซ้ำ:** เก็บข้อมูลคำขอและรหัสอ้างอิงสำหรับ retry เพื่อใช้รายการเดิมเมื่อเกิดความล้มเหลว รูปบนแพลตฟอร์มที่ไม่ใช่ Web เก็บใน app documents ส่วน Web เก็บรูปก่อนอัปโหลดไว้ในหน่วยความจำของหน้าจอ
-- **จัดการเวลาออกค้าง:** มีขั้นตอนยืนยัน pending checkout ผ่าน API
-- **ประวัติ:** เลือกเดือน ดูสรุปการมาทำงาน ลา ขาดงาน ล่วงเวลา และประวัติสแกนรายวัน พร้อมการ์ดชั่วโมงสะสมของเดือนที่เลือก ซึ่งอ้างอิงสแกนและแสดงได้แม้สรุปการเข้างานยังว่าง ใช้ปุ่ม Recalculate เพื่ออ่านสแกนใหม่
-- **โปรไฟล์และ Settings:** อ่านข้อมูลพนักงานและบทบาทจาก API และออกจากระบบ; ใน Settings เลือกธีม Default, Pure White หรือ Obsidian Black ได้ โดยแอปบันทึกตัวเลือกไว้ในเครื่องและเปลี่ยนสีทันที
+- **Framework:** Flutter 3.50.0 / Dart 3.14.0 (`cirrus_app`, Android ID `com.cirrusgroup.ems`)
+- **State & Storage:** `SharedPreferences`, local photo store (`path_provider`)
+- **Networking:** `http` (พร้อม idempotency key สำหรับ upload และ attendance event)
+- **Fonts & PDF:** `Bebas Neue` (EN), `IBM Plex Sans Thai` (TH), `Sarabun` / `TH Sarabun PSK` (Leave PDF)
 
-## ลำดับการทำงานหลัก
+---
 
-### ทดลองเงินเดือนและใบลา
+## การตั้งค่า (`.env`)
 
-หลังเข้าสู่ระบบ เลือกแท็บ **Pay & Leave** (ส่วนรายได้และใบลาใช้ข้อความภาษาอังกฤษ):
-
-- **Pay estimate:** ใช้ค่าแรงทดลองคงที่ 300 บาทต่อวันทำงาน 8 ชั่วโมง เท่ากับ 37.50 บาทต่อชั่วโมง แอปอ่านประวัติสแกนจาก API เดียวกับ History เมื่อเปิดหน้าหรือเปลี่ยนเดือน
-- สูตรทดลองคือ `37.50 บาท × ชั่วโมงทำงานที่ยืนยันได้ก่อน 17:00` คิดตามนาทีและปัดยอดรวมของเดือนเป็นสตางค์ เช่น 6 ชั่วโมง 30 นาที ได้ 243.75 บาท
-- การ์ด History แสดง Total Working Hours ซึ่งอาจใช้เวลาอ้างอิงเมื่อสแกนขาด และ Hours Used for Pay ซึ่งใช้สูตรเดียวกับ Pay estimate โดยนับเวลาจากคู่สแกนครบก่อน 17:00 เวลาไทย
-- เวลาหลัง 17:00 (เวลาไทย) แสดงเป็นเวลา bonus ยังไม่ตีเป็นเงิน เพราะยังไม่มีเกณฑ์โบนัส ไม่รวมภาษี ประกันสังคม และการหักจากวันลา
-- เดือนปัจจุบัน/อนาคตแสดงยอดสะสมหรือยอดทดลอง เดือนที่สิ้นสุดแล้วแสดงประมาณการหลังครบรอบ ยังไม่ใช่เงินเดือนอนุมัติ และไม่ล็อกยอดจ่ายจริง
-- ประวัติสแกนคิดเฉพาะคู่ `morning_in`–`lunch_out` และ `afternoon_in`–`leave` ที่ครบ ไม่เดาเวลาที่ขาด รวมช่วงทับซ้อนภายในวันเพื่อไม่คิดซ้ำ หากข้ามวันแล้วทับซ้อนกับอีกวัน จะตัดทั้งสองวันออกและเตือนให้ตรวจสอบ
-- เวลาในข้อมูลต้องมี timezone ชั่วโมง `00–23` นาทีและวินาที `00–59` ข้อมูลผิด เช่น `08:70` จะไม่ถูกแปลงเป็นเวลาอื่นเพื่อคิดเงิน
-- **Local leave:** กรอกประเภทลา วันเริ่ม–สิ้นสุด และเหตุผล ใบลาคิดเป็นวันเต็ม โดยเลือกวันเริ่มและวันสิ้นสุดวันเดียวกันเพื่อลา 1 วัน บันทึกเป็นแบบร่างในเครื่อง ยกเลิกได้แต่ยังเก็บประวัติ ไม่ส่งหัวหน้า ไม่อนุมัติจริง ไม่ตรวจสิทธิ และไม่กระทบค่าแรง ประเภทไม่รับค่าจ้างเป็นเพียงชื่อประเภทในแบบร่าง ผู้ใช้เปิดดู PDF แล้วเลือก Download เพื่อบันทึกลง Downloads หรือ Share เพื่อเปิด share sheet ได้ โดย PDF ระบุ Draft – not approved และใช้ข้อมูลโปรไฟล์ที่แอปเก็บไว้ หากช่องใดไม่มีข้อมูลจะแสดง Not provided
-- ใบลาและการตั้งค่าค่าแรงเก่าจากรุ่นทดลองก่อนหน้าเก็บใน `SharedPreferences` แยกตาม user ID; หน้าประมาณการเงินเดือนใหม่นี้ไม่อ่านหรือบันทึกค่าแรงเก่า ไม่มี API เขียนข้อมูลคำนวณกลับ Backend
-
-### การทำงานของระบบเดิม
-
-1. `main.dart` โหลด `.env` แล้วเปิด `SplashScreen`
-2. `AuthService.checkSession()` ตรวจ session แล้วส่งผู้ใช้ไปหน้า Login หรือ `MainShell` หากเชื่อมต่อไม่ได้จะแสดงข้อผิดพลาดพร้อมให้ลองใหม่
-3. `MainShell` มีสี่แท็บ Attendance, History, Pay & Leave และ Profile ใช้ `IndexedStack` เพื่อรักษา state ของแต่ละหน้าเมื่อสลับแท็บ
-4. เมื่อลงเวลา แอปสร้างหรืออ่านรายการค้างเดิม → ถ่ายรูปหรือใช้รูปเดิม → อัปโหลดและบันทึก `storageKey` → ขอพิกัด → ส่ง event → อัปเดตสถานะ
-5. หน้า History อ่านทั้ง attendance records และ scan events ซึ่งเป็นข้อมูลคนละชุดจากคนละ endpoint
-
-## โครงสร้างสำคัญ
-
-| ตำแหน่ง | หน้าที่ |
-| --- | --- |
-| `lib/main.dart` | เริ่มแอป โหลด environment และตั้ง theme |
-| `lib/screens/` | หน้า Splash, Login, Attendance, Camera, History, Profile และ navigation shell |
-| `lib/services/auth_service.dart` | Login, session, SSO, token และเลือก API base URL |
-| `lib/services/attendance_service.dart` | เรียก API ลงเวลา อัปโหลดรูป อ่านประวัติ และจัดการรายการค้าง |
-| `lib/services/location_service.dart` | ขอสิทธิ์และอ่านตำแหน่งปัจจุบันครั้งเดียว |
-| `lib/services/local_photo_store.dart` | บันทึก อ่าน และลบรูปใน app documents สำหรับการ retry บนแพลตฟอร์มที่ไม่ใช่ Web |
-| `lib/services/api_client_factory*.dart` | เลือก HTTP client ตามแพลตฟอร์ม; Web เปิดส่ง credentials |
-| `lib/models/captured_photo.dart` | ข้อมูลรูปที่ถ่าย ได้แก่ bytes ชื่อไฟล์ และ MIME type |
-| `lib/widgets/`, `lib/theme/` | ส่วนประกอบ UI ที่ใช้ร่วมกันและรูปแบบหน้าตาแอป |
-| `test/` | Unit/widget tests ด้าน auth, attendance, กล้อง, session และการเก็บรูป พร้อม fake camera |
-| `android/`, `ios/`, `web/`, `windows/`, `macos/`, `linux/` | ไฟล์โปรเจคแต่ละแพลตฟอร์ม การมีโฟลเดอร์ไม่ได้ยืนยันว่าทุกฟีเจอร์ทำงานครบทุกแพลตฟอร์ม |
-| `assets/icon/`, `lib/assets/` | ไอคอนและโลโก้ |
-
-## เริ่มใช้งานในเครื่องพัฒนา
-
-### สิ่งที่ต้องเตรียม
-
-- Flutter SDK ที่มี Dart ตรงกับ constraint `^3.13.7` ใน `pubspec.yaml`
-- เครื่องมือของแพลตฟอร์มเป้าหมาย เช่น Android SDK/JDK สำหรับ Android หรือ Chrome สำหรับ Web
-- EMS Backend ที่เข้าถึงได้ พร้อมบัญชีผู้ใช้และสิทธิ์ที่เหมาะสม
-- ไฟล์ `.env` ที่ root ของโปรเจค: `main.dart` โหลดไฟล์นี้ และ `pubspec.yaml` ประกาศเป็น asset
-
-### ตั้งค่า API
-
-มีไฟล์ `.env` อยู่แล้ว ให้ตรวจค่าตามสภาพแวดล้อมที่จะใช้งาน ตัวอย่างด้านล่างเป็น URL สำหรับพัฒนาในเครื่อง ไม่ใช่ค่าจริงที่คัดลอกจากไฟล์:
+ไฟล์ `.env` ที่ root ของโปรเจกต์ใช้กำหนด API Base URL (รวม `/api/v1/ems` โดยไม่ใส่ `/` ท้าย):
 
 ```dotenv
-API_BASE_URL_ANDROID=http://10.0.2.2:3000/api/v1/ems
-API_BASE_URL_WEB=http://localhost:3000/api/v1/ems
-API_BASE_URL_IOS=http://localhost:3000/api/v1/ems
+API_BASE_URL_ANDROID=https://api.cirrusmarine.site/api/v1/ems
+API_BASE_URL_WEB=https://api.cirrusmarine.site/api/v1/ems
+API_BASE_URL_IOS=https://api.cirrusmarine.site/api/v1/ems
 ```
 
-Android Emulator ใช้ `10.0.2.2` เพื่อเรียกเครื่อง host ส่วนมือถือจริงต้องใช้ URL หรือ IP ที่มือถือเข้าถึงได้ ให้ระบุ base URL รวม `/api/v1/ems` และไม่เติม `/` ท้ายค่า เพราะ service ต่อ path เอง
+---
 
-ค่าที่ตั้งใช้งานใน `.env` ปัจจุบันสำหรับ Android Emulator คือ `http://10.0.2.2:3000/api/v1/ems` และสำหรับ Web/iOS คือ `http://localhost:3000/api/v1/ems` เพื่อเชื่อมต่อ Local EMS Bridge ที่ชี้ไปยังฐานข้อมูล PostgreSQL `cirrus_02` บนเครื่อง (`localhost:5432`) หากต้องการเชื่อมเซิร์ฟเวอร์ภายนอก (เช่น `192.168.1.13:3000`) ให้แก้ค่าใน `.env` ตามเครื่องปลายทาง
-
-บน Android, Web และ iOS ลำดับการเลือก URL คือ `--dart-define` ของแพลตฟอร์มนั้น → ค่า `.env` ที่ไม่ว่าง → ค่าเริ่มต้นตามตัวอย่างข้างต้น สำหรับ desktop โค้ดปัจจุบันใช้ `http://localhost:3000/api/v1/ems` โดยตรง
-
-ไฟล์ `.env` ยังมี key `QUOTATIONS_URL` แต่ไม่พบการอ้างใช้ในโค้ด `lib/` ที่ตรวจ และค่าจาก `.env` จะถูกรวมไปกับแอป จึงไม่ควรใช้เก็บ server secret
-
-### คำสั่งพื้นฐาน
+## วิธีรันและทดสอบ
 
 ```powershell
-flutter --version
-flutter doctor
-flutter pub get
-flutter devices
-flutter run -d <device-id>
+# เตรียม alias Flutter (กรณี path มีภาษาไทย)
+subst F: "C:\Users\yossa\OneDrive\เอกสาร\CostCal\.tools\flutter"
+
+# ติดตั้ง dependencies และรันแอป
+F:\bin\flutter.bat pub get
+F:\bin\flutter.bat run -d <device-id>
+
+# ตรวจโค้ดและรันเทสต์
+F:\bin\flutter.bat analyze --no-fatal-infos lib/
+F:\bin\flutter.bat test
+
+# Build APK (Profile / Debug)
+F:\bin\flutter.bat build apk --profile -t lib/main.dart
 ```
 
-แทน `<device-id>` ด้วยค่าจาก `flutter devices` ตัวอย่างรัน Web พร้อมกำหนด API ทับ `.env`:
+---
 
-```powershell
-flutter run -d chrome --dart-define=API_BASE_URL_WEB=http://localhost:3000/api/v1/ems
-```
+## เอกสารเพิ่มเติม
 
-Web ต้องตั้งค่า Backend ให้รองรับ origin และ credentials/cookie สำหรับ SSO และต้องใช้งานกล้อง/พิกัดผ่านบริบทที่เบราว์เซอร์อนุญาต เช่น HTTPS หรือ localhost
-
-### ตรวจคุณภาพโค้ด
-
-```powershell
-flutter analyze
-flutter test
-```
-
-ชุดทดสอบที่มีไม่ได้ใช้แทนการทดสอบกับ Backend กล้อง และ GPS บนอุปกรณ์จริง
-
-## API ที่แอปเรียก
-
-ทุก path ในตารางต่อจาก `AuthService.baseUrl` รายการนี้อธิบายการใช้งานจากฝั่งแอป ไม่ใช่สัญญา API ฉบับสมบูรณ์ของ Backend
-
-| Method | Path | การใช้งาน |
-| --- | --- | --- |
-| POST | `/auth/login` | เข้าสู่ระบบ |
-| GET | `/auth/me` | ตรวจ session และอ่านโปรไฟล์ |
-| GET | `/auth/sso` | กู้คืน session ผ่าน SSO บน Web ในเส้นทาง Splash |
-| POST | `/auth/logout` | ออกจากระบบ |
-| GET | `/app-attendance/status` | สถานะและข้อมูลช่วงเวลาลงเวลา |
-| POST | `/storage/uploads` | อัปโหลดรูปแบบ multipart พร้อม `category=attendance`, `employeeId`, `uploadRequestId` และไฟล์ |
-| POST | `/app-attendance/events` | ส่งรายการลงเวลาพร้อม `clientRequestId` |
-| POST | `/app-attendance/pending-checkout/resolve` | ยืนยันเวลาออกค้างตามวันทำงาน |
-| GET | `/attendance` | อ่าน attendance records ของผู้ใช้ปัจจุบันตามช่วงวัน |
-| GET | `/app-attendance/my-scans` | อ่านประวัติสแกนของผู้ใช้ปัจจุบันตามช่วงวัน |
-
-## ข้อควรรู้ก่อนแก้ไขหรือรันต่อ
-
-- การ retry ต้องรักษา `clientRequestId` และ `uploadRequestId` ของรายการเดิม รวมถึงใช้ `storageKey` ที่ได้รับแล้วเพื่อข้ามการถ่ายและอัปโหลดซ้ำ การเปลี่ยนส่วนนี้อาจกระทบการป้องกันรายการซ้ำร่วมกับ Backend
-- GPS เป็นข้อมูลเสริม หากผู้ใช้ไม่อนุญาต ปิด location หรือหาไม่ได้ภายในเวลาที่กำหนด โค้ดยังส่งรายการต่อด้วยค่าพิกัดว่าง และไม่มีการติดตามตำแหน่งเบื้องหลัง
-- รูปบน Web ที่ยังอัปโหลดไม่สำเร็จไม่คงอยู่หลัง reload/ปิดหน้า ต่างจากรูปที่บันทึกไว้ใน app documents บนแพลตฟอร์มที่ไม่ใช่ Web
-- `android/app/build.gradle.kts` อ่าน release signing จาก `android/key.properties` หากมีไฟล์นี้ การ build แบบ debug ไม่ต้องใช้ release key แต่การ build แบบ release ยังต้องเตรียม signing configuration ให้ครบ
-- คอมเมนต์ในโค้ดอ้างถึง `claude_prompt.txt` และ `PROGRESS_LOG.md` แต่ไม่พบสองไฟล์นี้ในโฟลเดอร์ที่ตรวจ จึงยืนยันข้อกำหนดหรือประวัติเดิมจากเอกสารเหล่านั้นไม่ได้
-- พบ Flutter 3.50.0 / Dart 3.14.0 ที่ `C:\Users\yossa\OneDrive\เอกสาร\CostCal\.tools\flutter` แม้ไม่มีใน PATH ใช้ alias ชั่วคราว `F:` เพื่อเลี่ยงปัญหา shader compiler กับพาธภาษาไทย
-- สำหรับ Android ปรับ Android Gradle Plugin เป็น 9.1.1 ให้ตรงกับขั้นต่ำของ Flutter ที่ติดตั้ง กำหนด locale ของ Gradle เป็น `en_US` เพื่อป้องกันปี พ.ศ. เกินช่วงวันที่ ZIP/APK รองรับ และปรับ asset filter ให้บรรจุ `.env` ลง APK
-- เปิดแอป UI ล่าสุดบน Pixel 10 Pro XL API 35 แล้ว (RAM 8 GB, CPU 6 cores, host GPU) ผลทดสอบและขอบเขตที่ยังไม่ตรวจดูใน TASK_STATUS.md
+- [TASK_STATUS.md](TASK_STATUS.md) — สถานะงานล่าสุด, ข้อจำกัด และผลทดสอบ
+- [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) — โครงสร้างโฟลเดอร์และหน้าที่ไฟล์ทั้งหมด
+- [DESIGN.md](DESIGN.md) — แนวทาง UI และ Design Tokens
+- [AGENTS.md](AGENTS.md) — กติกาและคำสั่งพัฒนาสำหรับทีมและ AI Agent
+- [problem/BACKEND_INTEGRATION_REQUEST.md](problem/BACKEND_INTEGRATION_REQUEST.md) — สรุปจุดเชื่อมต่อ Backend โหมดช่างที่รออัปเดต
