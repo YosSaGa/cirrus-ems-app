@@ -21,6 +21,53 @@ class AppStrings {
     return en;
   }
 
+  /// Translates raw technical network/HTTP errors into concise user-friendly text.
+  static String friendlyError(Object error) {
+    final raw = error.toString().replaceFirst('Exception: ', '').trim();
+    final lower = raw.toLowerCase();
+    if (lower.contains('timeoutexception') ||
+        lower.contains('timed out') ||
+        lower.contains('timeout')) {
+      return t(
+        'Connection timed out. Please check your internet signal and try again.',
+        'หมดเวลาเชื่อมต่อเซิร์ฟเวอร์ กรุณาตรวจสอบสัญญาณเน็ตแล้วลองใหม่อีกครั้ง',
+        'Sambungan tamat masa. Sila semak isyarat internet dan cuba lagi.',
+      );
+    }
+    if (lower.contains('socketexception') ||
+        lower.contains('clientexception') ||
+        lower.contains('failed host lookup') ||
+        lower.contains('connection refused') ||
+        lower.contains('connection reset') ||
+        lower.contains('network is unreachable')) {
+      return t(
+        'Unable to connect to the server. Please check your internet connection and try again.',
+        'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง',
+        'Tidak dapat menyambung ke pelayan. Sila semak sambungan internet anda.',
+      );
+    }
+    if (lower.contains('502') ||
+        lower.contains('503') ||
+        lower.contains('504') ||
+        lower.contains('bad gateway') ||
+        lower.contains('service unavailable')) {
+      return t(
+        'The EMS server is temporarily unavailable. Please wait a moment and try again.',
+        'เซิร์ฟเวอร์ EMS ขัดข้องชั่วคราว กรุณารอสักครู่แล้วลองใหม่อีกครั้ง',
+        'Pelayan EMS tidak tersedia buat sementara waktu. Sila cuba sebentar lagi.',
+      );
+    }
+    if (lower.contains('handshakeexception') ||
+        lower.contains('certificate_verify_failed')) {
+      return t(
+        'Secure connection failed. Please check your device date/time or network.',
+        'การเชื่อมต่อปลอดภัยล้มเหลว กรุณาตรวจสอบวันที่/เวลาในเครื่องหรือเครือข่าย',
+        'Sambungan selamat gagal. Sila semak tarikh/masa peranti atau rangkaian.',
+      );
+    }
+    return raw;
+  }
+
   static const _enMonths = <String>[
     'January',
     'February',

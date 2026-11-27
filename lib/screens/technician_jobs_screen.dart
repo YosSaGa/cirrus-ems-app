@@ -255,8 +255,18 @@ class _TechnicianJobsScreenState extends State<TechnicianJobsScreen> {
   @override
   Widget build(BuildContext context) {
     final all = _filtered;
-    final myJobs = all.where((j) => j.isMine).toList(growable: false);
-    final otherJobs = all.where((j) => !j.isMine).toList(growable: false);
+    final myJobs = all
+        .where(
+          (j) =>
+              j.isMine && !j.isSubmittedAwaitingClose && !j.isClosedOnBackend,
+        )
+        .toList(growable: false);
+    final otherJobs = all
+        .where((j) => !j.isMine && !j.isClosedOnBackend)
+        .toList(growable: false);
+    final submittedJobs = all
+        .where((j) => j.isMine && j.isSubmittedAwaitingClose)
+        .toList(growable: false);
 
     return Scaffold(
       backgroundColor: AppColors.primary,
@@ -339,8 +349,22 @@ class _TechnicianJobsScreenState extends State<TechnicianJobsScreen> {
                     ),
                     const SizedBox(height: 8),
                     for (final job in otherJobs) _jobTile(job),
+                    const SizedBox(height: 16),
                   ],
-                  if (myJobs.isEmpty && otherJobs.isEmpty)
+                  if (submittedJobs.isNotEmpty) ...[
+                    _sectionHeader(
+                      AppStrings.t(
+                        'SUBMITTED · AWAITING CLOSE (${submittedJobs.length})',
+                        'ส่งรายงานแล้ว · รอปิดใบงาน (${submittedJobs.length})',
+                        'DIHANTAR · MENUNGGU TUTUP (${submittedJobs.length})',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    for (final job in submittedJobs) _submittedJobTile(job),
+                  ],
+                  if (myJobs.isEmpty &&
+                      otherJobs.isEmpty &&
+                      submittedJobs.isEmpty)
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 48),
                       child: Center(
@@ -435,6 +459,129 @@ class _TechnicianJobsScreenState extends State<TechnicianJobsScreen> {
         ),
       ),
     ],
+  );
+
+  Widget _submittedJobTile(TechnicianJob job) => Padding(
+    padding: const EdgeInsets.only(bottom: 7),
+    child: Material(
+      color: AppColors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: AppColors.cardBorder),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        key: Key('submitted-job-item-${job.jobCode}'),
+        onTap: () => _openDetail(job),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: AppColors.success.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.check_circle_outline_rounded,
+                  size: 16,
+                  color: AppColors.success,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          job.jobCode,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.neutral,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.success.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(AppRadius.pill),
+                          ),
+                          child: Text(
+                            AppStrings.t(
+                              'REPORT SUBMITTED ✓',
+                              'ส่งรายงานแล้ว ✓',
+                              'LAPORAN DIHANTAR ✓',
+                            ),
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.success,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (job.title.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        job.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                    if (job.vesselName != null &&
+                        job.vesselName!.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.directions_boat_rounded,
+                            size: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              job.vesselName!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 18,
+                color: AppColors.textSecondary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
   );
 
   Widget _jobTile(TechnicianJob job) {
@@ -933,13 +1080,28 @@ class _TechnicianJobDetailScreenState extends State<TechnicianJobDetailScreen> {
                                   vertical: 4,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.12),
+                                  color: job.isSubmittedAwaitingClose
+                                      ? AppColors.success.withValues(alpha: 0.24)
+                                      : Colors.white.withValues(alpha: 0.12),
                                   borderRadius: BorderRadius.circular(
                                     AppRadius.pill,
                                   ),
+                                  border: job.isSubmittedAwaitingClose
+                                      ? Border.all(
+                                          color: AppColors.success.withValues(
+                                            alpha: 0.85,
+                                          ),
+                                        )
+                                      : null,
                                 ),
                                 child: Text(
-                                  job.status.toUpperCase(),
+                                  job.isSubmittedAwaitingClose
+                                      ? AppStrings.t(
+                                          'REPORT SUBMITTED ✓',
+                                          'ส่งรายงานแล้ว ✓',
+                                          'LAPORAN DIHANTAR ✓',
+                                        )
+                                      : job.status.toUpperCase(),
                                   style: const TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w700,
@@ -1073,7 +1235,47 @@ class _TechnicianJobDetailScreenState extends State<TechnicianJobDetailScreen> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: job.isMine
+              child: job.isSubmittedAwaitingClose
+                  ? Container(
+                      key: const Key('job-submitted-awaiting-close-banner'),
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(AppRadius.input),
+                        border: Border.all(
+                          color: AppColors.success.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.check_circle_outline_rounded,
+                            size: 18,
+                            color: AppColors.success,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              AppStrings.t(
+                                'Work report submitted — awaiting supervisor to close this work order.',
+                                'ส่งรายงานการทำงานเรียบร้อยแล้ว — รอแอดมินปิดใบงานในระบบ',
+                                'Laporan kerja telah dihantar — menunggu penyelia menutup arahan kerja ini.',
+                              ),
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.neutral,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : job.isMine
                   ? (isSelected
                         ? SizedBox(
                             width: double.infinity,

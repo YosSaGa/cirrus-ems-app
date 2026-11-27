@@ -38,6 +38,8 @@ class TechnicianJob {
     this.assignedToName,
     this.scheduleStart,
     this.scheduleEnd,
+    this.reportSubmitted = false,
+    this.lastCheckoutStatus,
   });
 
   final String id;
@@ -55,6 +57,45 @@ class TechnicianJob {
   final String? assignedToName;
   final String? scheduleStart;
   final String? scheduleEnd;
+  final bool reportSubmitted;
+  final String? lastCheckoutStatus;
+
+  bool get isClosedOnBackend => const {
+    'completed',
+    'closed',
+    'cancelled',
+    'canceled',
+  }.contains(status.toLowerCase());
+
+  bool get isSubmittedAwaitingClose =>
+      isMine && reportSubmitted && lastCheckoutStatus != 'in_progress';
+
+  bool get isSelectableForCheckIn =>
+      isMine && !isClosedOnBackend && !isSubmittedAwaitingClose;
+
+  TechnicianJob copyWith({
+    String? status,
+    bool? reportSubmitted,
+    String? lastCheckoutStatus,
+  }) => TechnicianJob(
+    id: id,
+    jobCode: jobCode,
+    title: title,
+    description: description,
+    status: status ?? this.status,
+    priority: priority,
+    jobSource: jobSource,
+    projectId: projectId,
+    projectName: projectName,
+    vesselName: vesselName,
+    location: location,
+    isMine: isMine,
+    assignedToName: assignedToName,
+    scheduleStart: scheduleStart,
+    scheduleEnd: scheduleEnd,
+    reportSubmitted: reportSubmitted ?? this.reportSubmitted,
+    lastCheckoutStatus: lastCheckoutStatus ?? this.lastCheckoutStatus,
+  );
 
   factory TechnicianJob.fromJson(Map<String, dynamic> json) => TechnicianJob(
     id: (json['id'] ?? '').toString(),
@@ -72,6 +113,8 @@ class TechnicianJob {
     assignedToName: json['assignedToName']?.toString(),
     scheduleStart: json['scheduleStart']?.toString(),
     scheduleEnd: json['scheduleEnd']?.toString(),
+    reportSubmitted: json['reportSubmitted'] == true,
+    lastCheckoutStatus: json['lastCheckoutStatus']?.toString(),
   );
 }
 
@@ -328,6 +371,9 @@ class TechnicianService {
 
   static String? _cachedTeamMemberUserId;
   static String? _cachedTeamMemberId;
+  static TechnicianDashboardData? lastDashboardData;
+
+  static void clearCachedDashboard() => lastDashboardData = null;
 
   /// Matches the signed-in user against `GET /team-members` so we know their
   /// `hr.team_members.id` even when it differs from `core.users.id`.
@@ -1036,11 +1082,14 @@ class TechnicianService {
       return a.jobCode.compareTo(b.jobCode);
     });
 
-    // Map submitted report session IDs
+    // Map submitted report session IDs and workOrderIds
     final reportedSessionIds = <String>{};
+    final reportedWorkOrderIds = <String>{};
     for (final r in rawReports) {
       final sid = _pickStr(r, const ['workSessionId', 'work_session_id', 'sessionId']);
       if (sid != null) reportedSessionIds.add(sid);
+      final woid = _pickStr(r, const ['workOrderId', 'work_order_id', 'jobId']);
+      if (woid != null) reportedWorkOrderIds.add(woid);
     }
 
     // Parse sessions belonging to current user
@@ -1048,6 +1097,7 @@ class TechnicianService {
     TechnicianWorkSession? breakSession;
     TechnicianWorkSession? pendingReportSession;
     final todaySessions = <TechnicianWorkSession>[];
+    final latestReportedByOrder = <String, TechnicianWorkSession>{};
 
     for (final s in rawSessions) {
       final sid = _pickStr(s, const ['id']);
@@ -1139,6 +1189,15 @@ class TechnicianService {
 
       if (parsed.isActive) {
         activeSession ??= parsed;
+      } else if (reportSubmitted && woId.isNotEmpty) {
+        final existing = latestReportedByOrder[woId];
+        final currentStamp = checkOutAt ?? checkInAt;
+        final existingStamp = existing == null
+            ? ''
+            : (existing.checkOutAt ?? existing.checkInAt);
+        if (existing == null || currentStamp.compareTo(existingStamp) >= 0) {
+          latestReportedByOrder[woId] = parsed;
+        }
       }
       if (_isTodayIso(checkInAt)) {
         todaySessions.add(parsed);
@@ -1154,6 +1213,39 @@ class TechnicianService {
       breakSession = null;
     }
 
+    final visibleJobs = <TechnicianJob>[];
+    for (final job in jobs) {
+      if (job.isClosedOnBackend) continue;
+      final latestReported = latestReportedByOrder[job.id];
+      final hasReport =
+          latestReported != null || reportedWorkOrderIds.contains(job.id);
+      if (hasReport) {
+        final checkoutStatus =
+            latestReported?.jobStatusAtCheckout?.toLowerCase() ?? 'completed';
+        final nextStatus =
+            (checkoutStatus == 'in_progress' && job.status == 'open')
+                ? 'in_progress'
+                : job.status;
+        visibleJobs.add(
+          job.copyWith(
+            status: nextStatus,
+            reportSubmitted: true,
+            lastCheckoutStatus: checkoutStatus,
+          ),
+        );
+      } else {
+        visibleJobs.add(job);
+      }
+    }
+
+    visibleJobs.sort((a, b) {
+      if (a.isSubmittedAwaitingClose != b.isSubmittedAwaitingClose) {
+        return a.isSubmittedAwaitingClose ? 1 : -1;
+      }
+      if (a.isMine != b.isMine) return a.isMine ? -1 : 1;
+      return a.jobCode.compareTo(b.jobCode);
+    });
+
     final workDate =
         attStatus['currentWorkDate']?.toString() ?? _todayDateStr();
     final nextWindow = attStatus['currentWindowCode']?.toString() ??
@@ -1161,7 +1253,7 @@ class TechnicianService {
 
     return TechnicianDashboardData(
       workDate: workDate,
-      jobs: jobs,
+      jobs: visibleJobs,
       activeSession: activeSession,
       breakSession: breakSession,
       pendingReportSession: pendingReportSession,
@@ -1404,6 +1496,8 @@ class TechnicianService {
               'end_date',
             ]) ??
             fallback?.scheduleEnd,
+        reportSubmitted: fallback?.reportSubmitted ?? false,
+        lastCheckoutStatus: fallback?.lastCheckoutStatus,
       );
     } catch (_) {
       return fallback;
@@ -1413,7 +1507,11 @@ class TechnicianService {
   }
 
   static Future<TechnicianDashboardData> getMyJobs() async {
-    if (getMyJobsOverride != null) return getMyJobsOverride!();
+    if (getMyJobsOverride != null) {
+      final data = await getMyJobsOverride!();
+      lastDashboardData = data;
+      return data;
+    }
 
     final client = createApiClient();
     try {
@@ -1425,11 +1523,15 @@ class TechnicianService {
           )
           .timeout(const Duration(seconds: 15));
       if (res.statusCode == 404) {
-        return await _getMyJobsFromNestApi(client, headers);
+        final data = await _getMyJobsFromNestApi(client, headers);
+        lastDashboardData = data;
+        return data;
       }
       final body = _decodeJson(res);
       if (res.statusCode >= 200 && res.statusCode < 300) {
-        return TechnicianDashboardData.fromJson(body);
+        final data = TechnicianDashboardData.fromJson(body);
+        lastDashboardData = data;
+        return data;
       }
       throw TechnicianApiException(
         statusCode: res.statusCode,
@@ -1686,29 +1788,42 @@ class TechnicianService {
     String? notes,
     required bool recordAttendance,
   }) async {
-    final nowIso = DateTime.now().toUtc().toIso8601String();
-    final payload = <String, dynamic>{
-      'status': 'completed',
-      'checkOutAt': nowIso,
-      'jobStatusAtCheckout': jobStatus,
-      'checkOutLatitude': ?latitude,
-      'checkOutLongitude': ?longitude,
-      if (notes != null && notes.isNotEmpty) 'notes': notes,
+    final gpsNote = (latitude != null && longitude != null)
+        ? 'GPS: ${latitude.toStringAsFixed(5)}, ${longitude.toStringAsFixed(5)}'
+        : null;
+    final combinedNotes = [
+      if (notes != null && notes.trim().isNotEmpty) notes.trim(),
+      ?gpsNote,
+    ].join(' | ');
+    final actionPayload = <String, dynamic>{
+      if (combinedNotes.isNotEmpty) 'notes': combinedNotes,
     };
+    final actionPath = jobStatus == 'on_break'
+        ? '/work-sessions/$sessionId/break'
+        : '/work-sessions/$sessionId/check-out';
 
     var res = await client
-        .patch(
-          Uri.parse('${AuthService.baseUrl}/work-sessions/$sessionId'),
+        .post(
+          Uri.parse('${AuthService.baseUrl}$actionPath'),
           headers: headers,
-          body: jsonEncode(payload),
+          body: jsonEncode(actionPayload),
         )
         .timeout(const Duration(seconds: 20));
     if (res.statusCode == 404 || res.statusCode == 405) {
+      final nowIso = DateTime.now().toUtc().toIso8601String();
+      final patchPayload = <String, dynamic>{
+        'status': 'completed',
+        'checkOutAt': nowIso,
+        'jobStatusAtCheckout': jobStatus,
+        'checkOutLatitude': ?latitude,
+        'checkOutLongitude': ?longitude,
+        if (combinedNotes.isNotEmpty) 'notes': combinedNotes,
+      };
       res = await client
-          .post(
-            Uri.parse('${AuthService.baseUrl}/work-sessions/$sessionId/check-out'),
+          .patch(
+            Uri.parse('${AuthService.baseUrl}/work-sessions/$sessionId'),
             headers: headers,
-            body: jsonEncode(payload),
+            body: jsonEncode(patchPayload),
           )
           .timeout(const Duration(seconds: 20));
     }
@@ -1718,6 +1833,17 @@ class TechnicianService {
         statusCode: res.statusCode,
         message: body['message']?.toString() ?? 'Failed to update work session.',
       );
+    }
+
+    if (jobStatus != 'on_break') {
+      try {
+        await _confirmJobStatusViaNestApi(
+          client: client,
+          headers: headers,
+          sessionId: sessionId,
+          jobStatus: jobStatus,
+        );
+      } catch (_) {}
     }
 
     if (recordAttendance) {
@@ -1742,6 +1868,46 @@ class TechnicianService {
 
     AttendanceService.attendanceUpdatedNotifier.value++;
     return {'session': body['data'] ?? body};
+  }
+
+  static Future<void> _confirmJobStatusViaNestApi({
+    required http.Client client,
+    required Map<String, String> headers,
+    required String sessionId,
+    required String jobStatus,
+  }) async {
+    final uri = Uri.parse(
+      '${AuthService.baseUrl}/work-sessions/$sessionId/confirm-job-status',
+    );
+    final candidates = <Map<String, dynamic>>[
+      {'jobStatus': jobStatus},
+      {'status': jobStatus},
+      {'jobStatusAtCheckout': jobStatus},
+      {'isCompleted': jobStatus == 'completed'},
+      {'completed': jobStatus == 'completed'},
+      <String, dynamic>{},
+    ];
+    TechnicianApiException? lastError;
+    for (final payload in candidates) {
+      final res = await client
+          .post(uri, headers: headers, body: jsonEncode(payload))
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        return;
+      }
+      final body = _decodeJson(res);
+      lastError = TechnicianApiException(
+        statusCode: res.statusCode,
+        message:
+            body['message']?.toString() ?? 'Failed to confirm job status.',
+      );
+    }
+    if (lastError != null) {
+      throw TechnicianApiException(
+        statusCode: lastError.statusCode,
+        message: 'confirm-job-status (${lastError.statusCode}): ${lastError.message}',
+      );
+    }
   }
 
   static Future<Map<String, dynamic>> submitReport({
@@ -1793,27 +1959,45 @@ class TechnicianService {
             '[งานค้างต่อ / Recommendations]\n${recommendations.trim()}',
         ].join('\n\n');
 
-        final nestRes = await client
+        final reportPayload = jsonEncode({
+          if (sessionId.isNotEmpty) 'workSessionId': sessionId,
+          if (workOrderId != null && workOrderId.isNotEmpty)
+            'workOrderId': workOrderId,
+          if (userId != null && userId.isNotEmpty) 'technicianId': userId,
+          'workDescription': formattedDesc,
+          'workType': workType,
+          'photos': photos,
+          'status': 'submitted',
+        });
+
+        var nestRes = await client
             .post(
               Uri.parse('${AuthService.baseUrl}/technician-reports'),
               headers: headers,
-              body: jsonEncode({
-                if (sessionId.isNotEmpty) 'workSessionId': sessionId,
-                if (workOrderId != null && workOrderId.isNotEmpty)
-                  'workOrderId': workOrderId,
-                if (userId != null && userId.isNotEmpty) 'technicianId': userId,
-                'workDescription': formattedDesc,
-                'workType': workType,
-                if (findings != null && findings.trim().isNotEmpty)
-                  'findings': findings.trim(),
-                if (recommendations != null && recommendations.trim().isNotEmpty)
-                  'recommendations': recommendations.trim(),
-                'photos': photos,
-                'status': 'submitted',
-              }),
+              body: reportPayload,
             )
             .timeout(const Duration(seconds: 20));
-        final nestBody = _decodeJson(nestRes);
+        var nestBody = _decodeJson(nestRes);
+        final errText = (nestBody['message'] ?? '').toString().toLowerCase();
+        if (nestRes.statusCode >= 400 &&
+            nestRes.statusCode < 500 &&
+            sessionId.isNotEmpty &&
+            errText.contains('confirm the job status')) {
+          await _confirmJobStatusViaNestApi(
+            client: client,
+            headers: headers,
+            sessionId: sessionId,
+            jobStatus: 'completed',
+          );
+          nestRes = await client
+              .post(
+                Uri.parse('${AuthService.baseUrl}/technician-reports'),
+                headers: headers,
+                body: reportPayload,
+              )
+              .timeout(const Duration(seconds: 20));
+          nestBody = _decodeJson(nestRes);
+        }
         if (nestRes.statusCode >= 200 && nestRes.statusCode < 300) {
           return {'report': nestBody['data'] ?? nestBody};
         }

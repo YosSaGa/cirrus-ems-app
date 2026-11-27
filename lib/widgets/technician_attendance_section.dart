@@ -71,6 +71,7 @@ class TechnicianJobActionZone extends StatelessWidget {
     required this.onEndFromBreak,
     required this.onWriteReport,
     this.onRetry,
+    this.alreadyClockedIn = false,
   });
 
   final TechnicianDashboardData? data;
@@ -87,6 +88,7 @@ class TechnicianJobActionZone extends StatelessWidget {
   final ValueChanged<TechnicianWorkSession> onEndFromBreak;
   final ValueChanged<TechnicianWorkSession> onWriteReport;
   final VoidCallback? onRetry;
+  final bool alreadyClockedIn;
 
   @override
   Widget build(BuildContext context) {
@@ -150,8 +152,12 @@ class TechnicianJobActionZone extends StatelessWidget {
       canTap = !actionInProgress;
       onPressed = canTap ? onCheckOut : null;
     } else if (jobs.isEmpty) {
-      buttonLabel = AppStrings.t('Check In', 'เช็คอิน', 'Daftar Masuk');
-      buttonIcon = Icons.schedule_rounded;
+      buttonLabel = alreadyClockedIn
+          ? AppStrings.t('Start Job', 'เริ่มงาน', 'Mula Kerja')
+          : AppStrings.t('Check In', 'เช็คอิน', 'Daftar Masuk');
+      buttonIcon = alreadyClockedIn
+          ? Icons.play_arrow_rounded
+          : Icons.schedule_rounded;
       windowLabel = null;
       helperText = isLoadError
           ? AppStrings.t(
@@ -167,35 +173,61 @@ class TechnicianJobActionZone extends StatelessWidget {
       canTap = false;
       onPressed = null;
     } else if (selectedJob == null) {
-      buttonLabel = AppStrings.t('Check In', 'เช็คอิน', 'Daftar Masuk');
-      buttonIcon = Icons.schedule_rounded;
+      buttonLabel = alreadyClockedIn
+          ? AppStrings.t('Start Job', 'เริ่มงาน', 'Mula Kerja')
+          : AppStrings.t('Check In', 'เช็คอิน', 'Daftar Masuk');
+      buttonIcon = alreadyClockedIn
+          ? Icons.play_arrow_rounded
+          : Icons.schedule_rounded;
       windowLabel = null;
-      helperText = AppStrings.t(
-        'Select your Job Code above to check in',
-        'เลือก Job Code ของคุณด้านบนก่อนเช็คอิน',
-        'Pilih Kod Kerja anda di atas untuk daftar masuk',
-      );
+      helperText = alreadyClockedIn
+          ? AppStrings.t(
+              'Select your Job Code above to start job',
+              'เลือก Job Code ของคุณด้านบนก่อนเริ่มงาน',
+              'Pilih Kod Kerja anda di atas untuk mula kerja',
+            )
+          : AppStrings.t(
+              'Select your Job Code above to check in',
+              'เลือก Job Code ของคุณด้านบนก่อนเช็คอิน',
+              'Pilih Kod Kerja anda di atas untuk daftar masuk',
+            );
       canTap = false;
       onPressed = null;
     } else {
-      buttonLabel = AppStrings.t('Check In', 'เช็คอิน', 'Daftar Masuk');
-      buttonIcon = Icons.login_rounded;
-      windowLabel = isAfternoon
+      buttonLabel = alreadyClockedIn
+          ? AppStrings.t('Start Job', 'เริ่มงาน', 'Mula Kerja')
+          : AppStrings.t('Check In', 'เช็คอิน', 'Daftar Masuk');
+      buttonIcon = alreadyClockedIn
+          ? Icons.play_arrow_rounded
+          : Icons.login_rounded;
+      windowLabel = alreadyClockedIn
           ? AppStrings.t(
-              'Afternoon In · ${selectedJob!.jobCode}',
-              'เข้างานบ่าย · ${selectedJob!.jobCode}',
-              'Masuk Petang · ${selectedJob!.jobCode}',
+              'Start Job · ${selectedJob!.jobCode}',
+              'เริ่มงาน · ${selectedJob!.jobCode}',
+              'Mula Kerja · ${selectedJob!.jobCode}',
+            )
+          : (isAfternoon
+                ? AppStrings.t(
+                    'Afternoon In · ${selectedJob!.jobCode}',
+                    'เข้างานบ่าย · ${selectedJob!.jobCode}',
+                    'Masuk Petang · ${selectedJob!.jobCode}',
+                  )
+                : AppStrings.t(
+                    'Morning In · ${selectedJob!.jobCode}',
+                    'เข้างานเช้า · ${selectedJob!.jobCode}',
+                    'Masuk Pagi · ${selectedJob!.jobCode}',
+                  ));
+      helperText = alreadyClockedIn
+          ? AppStrings.t(
+              'Attendance already recorded · tap to start ${selectedJob!.jobCode}',
+              'ลงเวลาเข้างานแล้ว · แตะเพื่อเริ่มงาน ${selectedJob!.jobCode}',
+              'Kehadiran direkod · ketik untuk mula ${selectedJob!.jobCode}',
             )
           : AppStrings.t(
-              'Morning In · ${selectedJob!.jobCode}',
-              'เข้างานเช้า · ${selectedJob!.jobCode}',
-              'Masuk Pagi · ${selectedJob!.jobCode}',
+              'Records photo, attendance & GPS for ${selectedJob!.jobCode}',
+              'บันทึกเช็คชื่อ ถ่ายรูป และพิกัด GPS สำหรับ ${selectedJob!.jobCode}',
+              'Rekod foto, kehadiran & GPS untuk ${selectedJob!.jobCode}',
             );
-      helperText = AppStrings.t(
-        'Records photo, attendance & GPS for ${selectedJob!.jobCode}',
-        'บันทึกเช็คชื่อ ถ่ายรูป และพิกัด GPS สำหรับ ${selectedJob!.jobCode}',
-        'Rekod foto, kehadiran & GPS untuk ${selectedJob!.jobCode}',
-      );
       canTap = !actionInProgress;
       onPressed = canTap ? onCheckIn : null;
     }
@@ -650,7 +682,7 @@ class TechnicianJobActionZone extends StatelessWidget {
     }
 
     final myJobsCount = jobs
-        .where((j) => j.isMine && j.status.toLowerCase() != 'completed')
+        .where((j) => j.isSelectableForCheckIn)
         .length;
     final showMyJobsBadge = selectedJob == null && myJobsCount > 0;
     final isLoadError =

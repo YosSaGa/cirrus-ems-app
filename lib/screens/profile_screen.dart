@@ -5,6 +5,7 @@ import '../l10n/app_strings.dart';
 import '../services/attendance_service.dart';
 import '../services/auth_service.dart';
 import '../services/language_service.dart';
+import '../services/technician_service.dart';
 import '../services/theme_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ambient_panel.dart';
@@ -482,8 +483,74 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await _handleSwitchSelection(selected);
   }
 
+  String? _technicianExitWarning() {
+    if (!AuthService.hasTechnicianRole(_roles)) return null;
+    final dash = TechnicianService.lastDashboardData;
+    if (dash?.activeSession != null) {
+      final jobCode = dash!.activeSession!.jobCode;
+      return AppStrings.t(
+        'You are currently ON SITE ($jobCode). Please Check Out before leaving, or continue anyway?',
+        'คุณกำลังทำงานค้างอยู่ ($jobCode) แนะนำให้เช็คเอาท์ก่อน ต้องการดำเนินการต่อหรือไม่?',
+        'Anda sedang bertugas ($jobCode). Sila daftar keluar dahulu, atau teruskan?',
+      );
+    }
+    if (dash?.pendingReportSession != null) {
+      final jobCode = dash!.pendingReportSession!.jobCode;
+      return AppStrings.t(
+        'You have a pending work report ($jobCode). Leaving now will keep it unsubmitted. Continue?',
+        'คุณมีรายงานการทำงานค้างส่ง ($jobCode) ต้องการดำเนินการต่อหรือไม่?',
+        'Anda mempunyai laporan kerja tertunda ($jobCode). Teruskan?',
+      );
+    }
+    return null;
+  }
+
   Future<void> _handleSwitchSelection(Object? selected) async {
     if (selected == null || !mounted) return;
+    final techWarning = _technicianExitWarning();
+    if (techWarning != null) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          key: const Key('switch-account-warning-dialog'),
+          backgroundColor: AppColors.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.surface),
+          ),
+          title: Text(
+            AppStrings.t(
+              'Active Work Warning',
+              'แจ้งเตือนงานค้างอยู่',
+              'Amaran Kerja Aktif',
+            ),
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: AppColors.neutral,
+            ),
+          ),
+          content: Text(
+            techWarning,
+            style: TextStyle(color: AppColors.error),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(AppStrings.t('Cancel', 'ยกเลิก', 'Batal')),
+            ),
+            FilledButton(
+              key: const Key('confirm-switch-account-warning-button'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.error,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(AppStrings.t('Continue', 'ดำเนินการต่อ', 'Teruskan')),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true || !mounted) return;
+    }
     if (selected == 'NEW_ACCOUNT') {
       await _performSignOut(revokeInstantSwitch: false);
       return;
@@ -517,6 +584,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     setState(() => _loggingOut = true);
 
+    TechnicianService.clearCachedDashboard();
     await AuthService.logout(revokeInstantSwitch: revokeInstantSwitch);
 
     if (!reducedMotion) {
@@ -549,9 +617,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } catch (_) {}
     if (!mounted) return;
 
+    final techWarning = _technicianExitWarning();
+    final hasWarning = hasPending || techWarning != null;
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        key: techWarning != null ? const Key('logout-warning-dialog') : null,
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.surface),
@@ -564,19 +636,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
         content: Text(
-          hasPending
-              ? AppStrings.t(
-                  'You have a pending check-in waiting to be sent. Logging out will discard it. Continue?',
-                  'คุณมีรายการลงเวลาที่รอส่งอยู่ หากออกจากระบบรายการค้างนี้จะถูกลบ ต้องการออกจากระบบใช่หรือไม่?',
-                  'Anda mempunyai daftar masuk tertunda. Log keluar akan membuangnya. Teruskan?',
-                )
-              : AppStrings.t(
-                  'Are you sure you want to sign out of your account?',
-                  'คุณต้องการออกจากระบบบัญชีนี้ใช่หรือไม่?',
-                  'Adakah anda pasti mahu log keluar daripada akaun anda?',
-                ),
+          techWarning ??
+              (hasPending
+                  ? AppStrings.t(
+                      'You have a pending check-in waiting to be sent. Logging out will discard it. Continue?',
+                      'คุณมีรายการลงเวลาที่รอส่งอยู่ หากออกจากระบบรายการค้างนี้จะถูกลบ ต้องการออกจากระบบใช่หรือไม่?',
+                      'Anda mempunyai daftar masuk tertunda. Log keluar akan membuangnya. Teruskan?',
+                    )
+                  : AppStrings.t(
+                      'Are you sure you want to sign out of your account?',
+                      'คุณต้องการออกจากระบบบัญชีนี้ใช่หรือไม่?',
+                      'Adakah anda pasti mahu log keluar daripada akaun anda?',
+                    )),
           style: TextStyle(
-            color: hasPending ? AppColors.error : AppColors.textSecondary,
+            color: hasWarning ? AppColors.error : AppColors.textSecondary,
           ),
         ),
         actions: [

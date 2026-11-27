@@ -37,6 +37,7 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
   final _findingsController = TextEditingController();
   final _recommendController = TextEditingController();
   final List<CapturedPhoto> _photos = [];
+  final Map<CapturedPhoto, String> _uploadedPhotoKeys = {};
 
   static const int _maxPhotos = 4;
 
@@ -166,10 +167,114 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
     });
   }
 
+  Future<void> _confirmClearDraft() async {
+    if (_submitting) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        key: const Key('confirm-clear-draft-dialog'),
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.surface),
+        ),
+        title: Text(
+          AppStrings.t(
+            'Clear Saved Draft?',
+            'ล้างข้อความที่พิมพ์ค้างไว้?',
+            'Padam Draf Tersimpan?',
+          ),
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: AppColors.neutral,
+          ),
+        ),
+        content: Text(
+          AppStrings.t(
+            'This will erase all text entered in this work report.',
+            'ข้อความที่พิมพ์ไว้ทั้งหมดในรายงานนี้จะถูกลบออก',
+            'Semua teks yang ditaip dalam laporan ini akan dipadamkan.',
+          ),
+          style: TextStyle(fontSize: 13.5, color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(AppStrings.t('Cancel', 'ยกเลิก', 'Batal')),
+          ),
+          FilledButton(
+            key: const Key('confirm-clear-draft-button'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(AppStrings.t('Clear', 'ล้างข้อความ', 'Padam')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _clearDraft();
+    }
+  }
+
+  Future<bool> _confirmLeaveWithPhotos() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        key: const Key('confirm-leave-report-dialog'),
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.surface),
+        ),
+        title: Text(
+          AppStrings.t(
+            'Discard Attached Photos?',
+            'ออกโดยไม่ส่งรูปที่แนบไว้?',
+            'Buang Foto Dilampirkan?',
+          ),
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: AppColors.neutral,
+          ),
+        ),
+        content: Text(
+          AppStrings.t(
+            'You have ${_photos.length} attached photo(s). Your text is auto-saved, but photos will be lost if you leave now.',
+            'คุณแนบรูปไว้ ${_photos.length} รูป ข้อความจะถูกบันทึกไว้ให้อัตโนมัติ แต่รูปถ่ายจะหายไปหากออกตอนนี้',
+            'Anda mempunyai ${_photos.length} foto dilampirkan. Teks disimpan secara automatik, tetapi foto akan hilang jika anda keluar sekarang.',
+          ),
+          style: TextStyle(fontSize: 13.5, color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(AppStrings.t('Stay', 'อยู่ต่อ', 'Kekal')),
+          ),
+          FilledButton(
+            key: const Key('confirm-leave-report-button'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(AppStrings.t('Leave', 'ออกเลย', 'Keluar')),
+          ),
+        ],
+      ),
+    );
+    return result == true;
+  }
+
   void _removePhoto(int index) {
     if (_submitting || index < 0 || index >= _photos.length) return;
     HapticFeedback.selectionClick();
-    setState(() => _photos.removeAt(index));
+    setState(() {
+      final removed = _photos.removeAt(index);
+      _uploadedPhotoKeys.remove(removed);
+    });
   }
 
   Future<void> _submit() async {
@@ -186,6 +291,131 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
       return;
     }
 
+    final jobCode = widget.session?.jobCode ?? widget.job?.jobCode ?? '-';
+    final workTypeTuple = _workTypes.firstWhere(
+      (t) => t.$1 == _workType,
+      orElse: () => _workTypes.first,
+    );
+    final workTypeLabel = AppStrings.t(
+      workTypeTuple.$2,
+      workTypeTuple.$3,
+      workTypeTuple.$4,
+    );
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        key: const Key('confirm-submit-report-dialog'),
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.surface),
+        ),
+        title: Text(
+          AppStrings.t(
+            'Submit Work Report?',
+            'ยืนยันส่งรายงานการทำงาน?',
+            'Hantar Laporan Kerja?',
+          ),
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: AppColors.neutral,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '$jobCode · $workTypeLabel',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppColors.neutral,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              AppStrings.t(
+                'Photos attached: ${_photos.length}/$_maxPhotos',
+                'รูปภาพที่แนบ: ${_photos.length}/$_maxPhotos รูป',
+                'Foto dilampirkan: ${_photos.length}/$_maxPhotos',
+              ),
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            ),
+            if (_photos.isEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: AppColors.warning.withValues(alpha: 0.4),
+                  ),
+                ),
+                child: Text(
+                  AppStrings.t(
+                    'No work photos attached. You cannot edit this report after submission.',
+                    'ยังไม่ได้แนบรูปภาพการทำงาน และจะไม่สามารถแก้ไขหลังส่งแล้ว',
+                    'Tiada foto kerja dilampirkan. Laporan tidak boleh diedit selepas dihantar.',
+                  ),
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.neutral,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.neutral,
+                    side: BorderSide(color: AppColors.cardBorder),
+                    minimumSize: const Size(0, 44),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                    ),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: Text(
+                    AppStrings.t('Cancel', 'กลับไปแก้ไข', 'Batal'),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton(
+                  key: const Key('confirm-submit-report-button'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.neutral,
+                    foregroundColor: AppColors.onNeutral,
+                    minimumSize: const Size(0, 44),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                    ),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: Text(
+                    AppStrings.t('Submit', 'ยืนยันส่ง', 'Hantar'),
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
     HapticFeedback.mediumImpact();
     setState(() {
       _submitting = true;
@@ -195,10 +425,15 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
     try {
       final uploadedPhotoKeys = <String>[];
       for (var i = 0; i < _photos.length; i++) {
-        final storageKey = await AttendanceService.uploadAttendancePhoto(
-          _photos[i],
-          const Uuid().v4(),
-        );
+        final photo = _photos[i];
+        final cached = _uploadedPhotoKeys[photo];
+        final storageKey =
+            cached ??
+            await AttendanceService.uploadAttendancePhoto(
+              photo,
+              const Uuid().v4(),
+            );
+        _uploadedPhotoKeys[photo] = storageKey;
         uploadedPhotoKeys.add(storageKey);
       }
 
@@ -226,7 +461,7 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error = AppStrings.friendlyError(e);
         _submitting = false;
       });
     }
@@ -240,7 +475,17 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
     final jobTitle = s?.jobTitle ?? j!.title;
     final vesselName = s?.vesselName ?? j?.vesselName;
 
-    return Scaffold(
+    return PopScope(
+      canPop: _photos.isEmpty || _submitting,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final nav = Navigator.of(context);
+        final leave = await _confirmLeaveWithPhotos();
+        if (leave && mounted) {
+          nav.pop(false);
+        }
+      },
+      child: Scaffold(
       backgroundColor: AppColors.primary,
       appBar: AppBar(
         backgroundColor: AppColors.primary,
@@ -432,7 +677,7 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
                               ),
                             ),
                             TextButton(
-                              onPressed: _submitting ? null : _clearDraft,
+                              onPressed: _submitting ? null : _confirmClearDraft,
                               style: TextButton.styleFrom(
                                 minimumSize: const Size(0, 32),
                                 padding: const EdgeInsets.symmetric(
@@ -725,6 +970,7 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen> {
           ],
         ),
       ),
+    ),
     );
   }
 

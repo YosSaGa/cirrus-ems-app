@@ -24,8 +24,24 @@ class _TechnicianHistoryScreenState extends State<TechnicianHistoryScreen> {
   bool _onlyMine = false;
   String _statusFilter = 'all';
   List<TechnicianHistoryItem> _items = const [];
+  final Set<String> _expandedSessionIds = <String>{};
   final _searchController = TextEditingController();
   String _query = '';
+
+  static final RegExp _uuidPattern = RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+  );
+
+  String _displayReportLabel(String? reportNumber) {
+    final trimmed = reportNumber?.trim() ?? '';
+    if (trimmed.isEmpty) {
+      return AppStrings.t('WORK REPORT', 'รายงานการทำงาน', 'LAPORAN KERJA');
+    }
+    if (_uuidPattern.hasMatch(trimmed)) {
+      return '#${trimmed.substring(0, 8).toUpperCase()}';
+    }
+    return trimmed;
+  }
 
   @override
   void initState() {
@@ -55,7 +71,7 @@ class _TechnicianHistoryScreenState extends State<TechnicianHistoryScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error = AppStrings.friendlyError(e);
         _loading = false;
       });
     }
@@ -309,9 +325,9 @@ class _TechnicianHistoryScreenState extends State<TechnicianHistoryScreen> {
 
   Widget _historyCard(TechnicianHistoryItem item) {
     final isCompleted = item.jobStatusAtCheckout == 'completed';
+    final isExpanded = _expandedSessionIds.contains(item.sessionId);
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppRadius.surface),
@@ -324,173 +340,257 @@ class _TechnicianHistoryScreenState extends State<TechnicianHistoryScreen> {
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  crossAxisAlignment: WrapCrossAlignment.center,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          key: Key('history-card-${item.sessionId}'),
+          borderRadius: BorderRadius.circular(AppRadius.surface),
+          onTap: item.hasReport
+              ? () => setState(() {
+                  if (isExpanded) {
+                    _expandedSessionIds.remove(item.sessionId);
+                  } else {
+                    _expandedSessionIds.add(item.sessionId);
+                  }
+                })
+              : null,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Text(
-                      item.jobCode,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.neutral,
+                    Expanded(
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            item.jobCode,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.neutral,
+                            ),
+                          ),
+                          StatusChip(
+                            label: isCompleted
+                                ? AppStrings.t(
+                                    'COMPLETED',
+                                    'เสร็จสิ้น',
+                                    'SELESAI',
+                                  )
+                                : AppStrings.t(
+                                    'IN PROGRESS',
+                                    'กำลังทำต่อ',
+                                    'BERJALAN',
+                                  ),
+                            variant: isCompleted
+                                ? ChipVariant.success
+                                : ChipVariant.active,
+                          ),
+                        ],
                       ),
                     ),
-                    StatusChip(
-                      label: isCompleted
-                          ? AppStrings.t('COMPLETED', 'เสร็จสิ้น', 'SELESAI')
-                          : AppStrings.t('IN PROGRESS', 'กำลังทำต่อ', 'BERJALAN'),
-                      variant: isCompleted
-                          ? ChipVariant.success
-                          : ChipVariant.active,
-                    ),
+                    if (item.durationMinutes != null)
+                      Text(
+                        '${item.durationMinutes!.round()} min',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
                   ],
                 ),
-              ),
-              if (item.durationMinutes != null)
-                Text(
-                  '${item.durationMinutes!.round()} min',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-            ],
-          ),
-          if (item.jobTitle.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              item.jobTitle,
-              style: TextStyle(
-                fontSize: 13.5,
-                fontWeight: FontWeight.w600,
-                color: AppColors.neutral.withValues(alpha: 0.9),
-              ),
-            ),
-          ],
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 10,
-            runSpacing: 4,
-            children: [
-              _metaChip(
-                Icons.schedule_rounded,
-                '${_fmtDateTime(item.checkInAt)} → ${_fmtTime(item.checkOutAt)}',
-              ),
-              if (_isAdmin)
-                _metaChip(Icons.person_outline, item.technicianName),
-              if (item.hasGps)
-                _metaChip(Icons.location_on_outlined, 'GPS ✓'),
-              if (item.photoCount > 0)
-                _metaChip(
-                  Icons.photo_camera_outlined,
-                  AppStrings.t(
-                    '${item.photoCount} ${item.photoCount == 1 ? 'photo' : 'photos'}',
-                    '${item.photoCount} รูป',
-                    '${item.photoCount} foto',
-                  ),
-                ),
-            ],
-          ),
-          Divider(height: 20, color: AppColors.cardBorder),
-          if (item.hasReport) ...[
-            Row(
-              children: [
-                Icon(
-                  Icons.description_outlined,
-                  size: 15,
-                  color: AppColors.secondary,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  item.reportNumber ??
-                      AppStrings.t('WORK REPORT', 'รายงานการทำงาน', 'LAPORAN KERJA'),
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.neutral,
-                  ),
-                ),
-                if (item.workType != null && item.workType!.isNotEmpty) ...[
-                  const SizedBox(width: 6),
+                if (item.jobTitle.isNotEmpty) ...[
+                  const SizedBox(height: 4),
                   Text(
-                    '· ${item.workType!.toUpperCase()}',
+                    item.jobTitle,
+                    maxLines: isExpanded ? null : 2,
+                    overflow: isExpanded
+                        ? TextOverflow.visible
+                        : TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textSecondary,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.neutral.withValues(alpha: 0.9),
                     ),
                   ),
                 ],
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 4,
+                  children: [
+                    _metaChip(
+                      Icons.schedule_rounded,
+                      '${_fmtDateTime(item.checkInAt)} → ${_fmtTime(item.checkOutAt)}',
+                    ),
+                    if (_isAdmin)
+                      _metaChip(Icons.person_outline, item.technicianName),
+                    if (item.hasGps)
+                      _metaChip(Icons.location_on_outlined, 'GPS ✓'),
+                    if (item.photoCount > 0)
+                      _metaChip(
+                        Icons.photo_camera_outlined,
+                        AppStrings.t(
+                          '${item.photoCount} ${item.photoCount == 1 ? 'photo' : 'photos'}',
+                          '${item.photoCount} รูป',
+                          '${item.photoCount} foto',
+                        ),
+                      ),
+                  ],
+                ),
+                Divider(height: 20, color: AppColors.cardBorder),
+                if (item.hasReport) ...[
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.description_outlined,
+                        size: 15,
+                        color: AppColors.secondary,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text.rich(
+                          TextSpan(
+                            children: [
+                              TextSpan(
+                                text: _displayReportLabel(item.reportNumber),
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.neutral,
+                                ),
+                              ),
+                              if (item.workType != null &&
+                                  item.workType!.isNotEmpty)
+                                TextSpan(
+                                  text: ' · ${item.workType!.toUpperCase()}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                            ],
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            isExpanded
+                                ? AppStrings.t('Hide', 'ซ่อน', 'Sembunyi')
+                                : AppStrings.t(
+                                    'Details',
+                                    'ดูรายละเอียด',
+                                    'Butiran',
+                                  ),
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.secondary,
+                            ),
+                          ),
+                          const SizedBox(width: 2),
+                          Icon(
+                            isExpanded
+                                ? Icons.keyboard_arrow_up_rounded
+                                : Icons.keyboard_arrow_down_rounded,
+                            size: 18,
+                            color: AppColors.secondary,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  AnimatedSize(
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeOutCubic,
+                    alignment: Alignment.topCenter,
+                    child: isExpanded
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 8),
+                              Text(
+                                item.workDescription ?? '',
+                                style: TextStyle(
+                                  fontSize: 13.5,
+                                  height: 1.4,
+                                  color: AppColors.neutral,
+                                ),
+                              ),
+                              if (item.findings != null &&
+                                  item.findings!.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.warning.withValues(
+                                      alpha: 0.08,
+                                    ),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: AppColors.warning.withValues(
+                                        alpha: 0.3,
+                                      ),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '${AppStrings.t('Problems', 'ปัญหาที่พบ', 'Masalah')}: ${item.findings}',
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.neutral,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                              if (item.recommendations != null &&
+                                  item.recommendations!.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${AppStrings.t('Next steps', 'งานค้างต่อ', 'Cadangan')}: ${item.recommendations}',
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ] else
+                  Text(
+                    AppStrings.t(
+                      'Report pending submission',
+                      'ยังไม่ได้ส่งรายงานสำหรับรอบนี้',
+                      'Laporan belum dihantar',
+                    ),
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontStyle: FontStyle.italic,
+                      color: AppColors.warning,
+                    ),
+                  ),
               ],
             ),
-            const SizedBox(height: 6),
-            Text(
-              item.workDescription ?? '',
-              style: TextStyle(
-                fontSize: 13.5,
-                height: 1.4,
-                color: AppColors.neutral,
-              ),
-            ),
-            if (item.findings != null && item.findings!.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.warning.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: AppColors.warning.withValues(alpha: 0.3),
-                  ),
-                ),
-                child: Text(
-                  '${AppStrings.t('Problems', 'ปัญหาที่พบ', 'Masalah')}: ${item.findings}',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.neutral,
-                  ),
-                ),
-              ),
-            ],
-            if (item.recommendations != null &&
-                item.recommendations!.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                '${AppStrings.t('Next steps', 'งานค้างต่อ', 'Cadangan')}: ${item.recommendations}',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ] else
-            Text(
-              AppStrings.t(
-                'Report pending submission',
-                'ยังไม่ได้ส่งรายงานสำหรับรอบนี้',
-                'Laporan belum dihantar',
-              ),
-              style: TextStyle(
-                fontSize: 12.5,
-                fontStyle: FontStyle.italic,
-                color: AppColors.warning,
-              ),
-            ),
-        ],
+          ),
+        ),
       ),
     );
   }

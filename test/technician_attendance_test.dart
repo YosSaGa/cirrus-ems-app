@@ -1,7 +1,10 @@
 import 'dart:convert';
 
+import 'package:cirrus_app/l10n/app_strings.dart';
 import 'package:cirrus_app/screens/attendance_screen.dart';
+import 'package:cirrus_app/screens/profile_screen.dart';
 import 'package:cirrus_app/screens/settings_screen.dart';
+import 'package:cirrus_app/screens/technician_jobs_screen.dart';
 import 'package:cirrus_app/screens/technician_report_screen.dart';
 import 'package:cirrus_app/services/attendance_service.dart';
 import 'package:cirrus_app/services/auth_service.dart';
@@ -21,6 +24,7 @@ void main() {
   });
 
   tearDown(() {
+    AuthService.debugResetClient();
     AttendanceService.debugResetClient();
     TechnicianService.getMyJobsOverride = null;
     TechnicianService.checkInOverride = null;
@@ -29,6 +33,7 @@ void main() {
     TechnicianService.getHistoryOverride = null;
     TechnicianService.startBreakOverride = null;
     TechnicianService.endFromBreakOverride = null;
+    TechnicianService.clearCachedDashboard();
   });
 
   Widget wrapScreen(Widget child) => MaterialApp(
@@ -334,14 +339,15 @@ void main() {
       await tester.pumpWidget(wrapScreen(const AttendanceScreen()));
       await tester.pumpAndSettle();
 
-      // Job picker is locked and pending report card is displayed
-      expect(find.byKey(const Key('technician-pending-report-card')), findsOneWidget);
-      expect(find.byKey(const Key('technician-job-picker')), findsNothing);
-
-      // Open mandatory report screen, verify Work Photos & Problems fields, fill and submit
-      await tester.tap(find.byKey(const Key('open-pending-report-button')));
+      // Startup center alert appears automatically for the pending report
+      expect(
+        find.byKey(const Key('pending-report-startup-dialog')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('pending-report-startup-ok-button')));
       await tester.pumpAndSettle();
 
+      // Navigates straight to the pending report screen
       expect(find.byKey(const Key('add-report-photo-button')), findsOneWidget);
       expect(find.byKey(const Key('report-findings-field')), findsOneWidget);
 
@@ -354,6 +360,13 @@ void main() {
         'Minor oil seepage around gasket.',
       );
       await tester.tap(find.byKey(const Key('submit-technician-report-button')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('confirm-submit-report-dialog')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('confirm-submit-report-button')));
       await tester.pumpAndSettle();
 
       expect(submittedFindings, 'Minor oil seepage around gasket.');
@@ -409,13 +422,22 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('JOB-2611-101'), findsOneWidget);
-      expect(find.text('TR-20261125-ABCD'), findsOneWidget);
+      expect(find.textContaining('TR-20261125-ABCD'), findsOneWidget);
+      expect(find.text('2 photos'), findsOneWidget);
+      expect(
+        find.text('Changed oil filter and checked voltage.'),
+        findsNothing,
+      );
+      expect(find.textContaining('Minor oil leak on gasket'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('history-card-sess-1')));
+      await tester.pumpAndSettle();
+
       expect(
         find.text('Changed oil filter and checked voltage.'),
         findsOneWidget,
       );
       expect(find.textContaining('Minor oil leak on gasket'), findsOneWidget);
-      expect(find.text('2 photos'), findsOneWidget);
     },
   );
 
@@ -466,8 +488,239 @@ void main() {
       await tester.tap(submitBtn);
       await tester.pumpAndSettle();
 
+      expect(
+        find.byKey(const Key('confirm-submit-report-dialog')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('confirm-submit-report-button')));
+      await tester.pumpAndSettle();
+
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString('ems.reportDraft.job-draft-1'), isNull);
+    },
+  );
+
+  testWidgets(
+    'TechnicianReportScreen asks confirmation before clearing saved draft',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'ems.reportDraft.job-draft-2': jsonEncode({
+          'workType': 'service',
+          'desc': 'Checked generator belts',
+          'findings': '',
+          'recommend': '',
+        }),
+      });
+      await LanguageService.setLanguage(AppLanguage.en);
+
+      await tester.pumpWidget(
+        wrapScreen(
+          const TechnicianReportScreen(
+            job: TechnicianJob(
+              id: 'job-draft-2',
+              jobCode: 'WO-000100',
+              title: 'Belt Check',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Checked generator belts'), findsOneWidget);
+
+      await tester.tap(find.text('Clear'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('confirm-clear-draft-dialog')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('confirm-clear-draft-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Checked generator belts'), findsNothing);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('ems.reportDraft.job-draft-2'), isNull);
+    },
+  );
+
+  test('AppStrings.friendlyError translates network and server errors cleanly', () async {
+    await LanguageService.setLanguage(AppLanguage.en);
+    expect(
+      AppStrings.friendlyError(Exception('TimeoutException after 0:00:15')),
+      contains('Connection timed out'),
+    );
+    expect(
+      AppStrings.friendlyError(Exception('SocketException: Failed host lookup')),
+      contains('Unable to connect to the server'),
+    );
+    expect(
+      AppStrings.friendlyError(Exception('502 Bad Gateway')),
+      contains('temporarily unavailable'),
+    );
+    expect(
+      AppStrings.friendlyError(Exception('Work order already closed')),
+      'Work order already closed',
+    );
+  });
+
+  testWidgets(
+    'ProfileScreen warns Technician before Log Out when ON SITE session is active',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'ems.token': 'tok-1',
+        'ems.user': jsonEncode({'id': 't1', 'name': 'Touch'}),
+        'ems.roles': jsonEncode(['Technician']),
+      });
+      await LanguageService.setLanguage(AppLanguage.en);
+
+      AuthService.debugOverrideClient(
+        MockClient((request) async {
+          return http.Response(
+            jsonEncode({
+              'user': {'id': 't1', 'name': 'Touch'},
+              'roles': ['Technician'],
+            }),
+            200,
+          );
+        }),
+      );
+      TechnicianService.lastDashboardData = const TechnicianDashboardData(
+        workDate: '2026-11-27',
+        jobs: [],
+        activeSession: TechnicianWorkSession(
+          id: 'sess-active-1',
+          jobId: 'wo-17',
+          jobCode: 'WO-000017',
+          jobTitle: 'Engine Overhaul',
+          status: 'active',
+          checkInAt: '2026-11-27T01:30:00.000Z',
+        ),
+        todaySessions: [],
+        completedWindows: {},
+      );
+
+      await tester.pumpWidget(wrapScreen(const ProfileScreen()));
+      await tester.pumpAndSettle();
+
+      final logoutBtn = find.text('Log Out');
+      await tester.ensureVisible(logoutBtn);
+      await tester.pumpAndSettle();
+      await tester.tap(logoutBtn);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('logout-warning-dialog')), findsOneWidget);
+      expect(find.textContaining('WO-000017'), findsWidgets);
+    },
+  );
+
+  testWidgets(
+    'TechnicianJobsScreen separates submitted awaiting-close jobs and locks Check-In',
+    (tester) async {
+      await LanguageService.setLanguage(AppLanguage.en);
+
+      await tester.pumpWidget(
+        wrapScreen(
+          const TechnicianJobsScreen(
+            jobs: [
+              TechnicianJob(
+                id: 'wo-open',
+                jobCode: 'WO-OPEN-1',
+                title: 'Active Generator Job',
+                isMine: true,
+                status: 'open',
+              ),
+              TechnicianJob(
+                id: 'wo-done',
+                jobCode: 'WO-DONE-1',
+                title: 'Submitted Engine Job',
+                isMine: true,
+                status: 'open',
+                reportSubmitted: true,
+                lastCheckoutStatus: 'completed',
+              ),
+              TechnicianJob(
+                id: 'wo-closed',
+                jobCode: 'WO-CLOSED-1',
+                title: 'Closed Archive Job',
+                isMine: true,
+                status: 'closed',
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('ASSIGNED TO YOU (1)'), findsOneWidget);
+      expect(find.text('SUBMITTED · AWAITING CLOSE (1)'), findsOneWidget);
+      expect(find.text('WO-OPEN-1'), findsOneWidget);
+      expect(find.byKey(const Key('submitted-job-item-WO-DONE-1')), findsOneWidget);
+      expect(find.text('WO-CLOSED-1'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('submitted-job-item-WO-DONE-1')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('job-submitted-awaiting-close-banner')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('select-job-for-checkin-button')), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Technician who already scanned attendance sees Start Job instead of Check In',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'ems.user': jsonEncode({'id': 't1', 'name': 'Touch'}),
+        'ems.roles': jsonEncode(['Technician']),
+      });
+      await LanguageService.setLanguage(AppLanguage.en);
+
+      AttendanceService.debugOverrideClient(
+        MockClient((request) async {
+          if (request.url.path.endsWith('/my-scans')) {
+            return http.Response('[]', 200);
+          }
+          return http.Response(
+            jsonEncode({
+              'currentWorkDate': '2026-11-27',
+              'currentWindowCode': 'morning_in',
+              'latestEvent': {
+                'windowCode': 'morning_in',
+                'scannedAt': '2026-11-27T01:00:00.000Z',
+              },
+              'latestCountedEvent': {
+                'windowCode': 'morning_in',
+                'scannedAt': '2026-11-27T01:00:00.000Z',
+              },
+            }),
+            200,
+          );
+        }),
+      );
+
+      TechnicianService.getMyJobsOverride = () async => const TechnicianDashboardData(
+        workDate: '2026-11-27',
+        jobs: [
+          TechnicianJob(
+            id: 'wo-200',
+            jobCode: 'WO-200',
+            title: 'Hull Inspection',
+            isMine: true,
+          ),
+        ],
+        todaySessions: [],
+        completedWindows: {'morning_in'},
+        nextWindowCode: 'afternoon_in',
+      );
+
+      await tester.pumpWidget(wrapScreen(const AttendanceScreen()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('START JOB'), findsOneWidget);
+      expect(find.text('CHECK IN'), findsNothing);
     },
   );
 }

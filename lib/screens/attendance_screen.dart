@@ -95,6 +95,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   Timer? _techPollTimer;
   bool _techPollingInFlight = false;
   Set<String>? _knownTechJobIds;
+  String? _promptedPendingReportSessionId;
 
   // claude_prompt.txt (v171 §3 "Web may retain its existing in-memory
   // behavior ... do not implement IndexedDB"): on every OTHER platform,
@@ -334,6 +335,93 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       _loading = false;
     });
     _ensureTechnicianPolling();
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _maybePromptPendingReport(techData),
+    );
+  }
+
+  Future<void> _maybePromptPendingReport(TechnicianDashboardData? data) async {
+    if (!mounted || _navigatingToLogin) return;
+    final pending = data?.pendingReportSession;
+    if (pending == null || data?.activeSession != null) return;
+    if (_promptedPendingReportSessionId == pending.id) return;
+    _promptedPendingReportSessionId = pending.id;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => AlertDialog(
+        key: const Key('pending-report-startup-dialog'),
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.surface),
+        ),
+        icon: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: AppColors.warning.withValues(alpha: 0.14),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            Icons.assignment_late_outlined,
+            color: AppColors.warning,
+            size: 26,
+          ),
+        ),
+        title: Text(
+          AppStrings.t(
+            'Pending Work Report',
+            'มีรายงานการทำงานค้างอยู่',
+            'Laporan Kerja Tertunda',
+          ),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: AppColors.neutral,
+          ),
+        ),
+        content: Text(
+          AppStrings.t(
+            'You finished ${pending.jobCode} but have not submitted the work report yet. Tap OK to complete it now.',
+            'คุณจบงาน ${pending.jobCode} แล้ว แต่ยังไม่ได้ส่งรายงานการทำงาน กดตกลงเพื่อไปกรอกรายงานที่ค้างไว้',
+            'Anda telah menamatkan ${pending.jobCode} tetapi belum menghantar laporan. Ketik OK untuk mengisinya.',
+          ),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 13.5,
+            height: 1.45,
+            color: AppColors.textSecondary,
+          ),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              key: const Key('pending-report-startup-ok-button'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.neutral,
+                foregroundColor: AppColors.onNeutral,
+                minimumSize: const Size(0, 46),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                ),
+              ),
+              onPressed: () => Navigator.of(dialogCtx).pop(true),
+              child: Text(
+                AppStrings.t('OK', 'ตกลง', 'OK'),
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _openTechnicianReport(pending);
+    }
   }
 
   // claude_prompt.txt (v172 §Required Behavior #6/#7): "the UI must
@@ -868,8 +956,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
-  String _genericErrorMessage(Object e) =>
-      e.toString().replaceFirst('Exception: ', '');
+  String _genericErrorMessage(Object e) => AppStrings.friendlyError(e);
+
+  String _gpsWarningSuffix(CapturedLocation? location) {
+    if (location != null) return '';
+    return AppStrings.t(
+      ' (GPS unavailable — check Location settings)',
+      ' (จับพิกัด GPS ไม่ได้ — กรุณาเปิด Location)',
+      ' (GPS tidak tersedia — semak tetapan Lokasi)',
+    );
+  }
 
   int? _positiveMinutes(dynamic value) {
     if (value is num && value > 0) return value.round();
@@ -1193,9 +1289,21 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
+  bool get _hasScannedAttendanceToday {
+    final latestCounted = _status?['latestCountedEvent'];
+    if (latestCounted is Map && latestCounted.isNotEmpty) return true;
+    final latestEvent = _status?['latestEvent'];
+    if (latestEvent is Map && latestEvent.isNotEmpty) return true;
+    if (_techData != null && _techData!.completedWindows.isNotEmpty) {
+      return true;
+    }
+    return false;
+  }
+
   Future<void> _technicianCheckIn() async {
     final job = _selectedTechJob;
     if (_actionInProgress || job == null) return;
+    final alreadyClockedIn = _hasScannedAttendanceToday;
 
     final windowCode =
         _techData?.nextWindowCode == 'afternoon_in'
@@ -1233,11 +1341,17 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
       if (!mounted) return;
       setState(
-        () => _checkInStageLabel = AppStrings.t(
-          'Recording GPS & check-in...',
-          'กำลังบันทึกพิกัด GPS และเช็คอิน...',
-          'Merekod GPS & daftar masuk...',
-        ),
+        () => _checkInStageLabel = alreadyClockedIn
+            ? AppStrings.t(
+                'Recording GPS & starting job...',
+                'กำลังบันทึกพิกัด GPS และเริ่มงาน...',
+                'Merekod GPS & memulakan kerja...',
+              )
+            : AppStrings.t(
+                'Recording GPS & check-in...',
+                'กำลังบันทึกพิกัด GPS และเช็คอิน...',
+                'Merekod GPS & daftar masuk...',
+              ),
       );
       final location = await LocationService.captureCurrentLocation();
 
@@ -1259,11 +1373,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             duration: const Duration(seconds: 3),
             behavior: SnackBarBehavior.floating,
             content: Text(
-              AppStrings.t(
-                'Checked in to ${job.jobCode}',
-                'เช็คอินงาน ${job.jobCode} เรียบร้อยแล้ว',
-                'Berjaya daftar masuk ke ${job.jobCode}',
-              ),
+              alreadyClockedIn
+                  ? '${AppStrings.t('Started job ${job.jobCode}', 'เริ่มงาน ${job.jobCode} เรียบร้อยแล้ว', 'Kerja ${job.jobCode} dimulakan')}${_gpsWarningSuffix(location)}'
+                  : '${AppStrings.t('Checked in to ${job.jobCode}', 'เช็คอินงาน ${job.jobCode} เรียบร้อยแล้ว', 'Berjaya daftar masuk ke ${job.jobCode}')}${_gpsWarningSuffix(location)}',
             ),
           ),
         );
@@ -1487,6 +1599,23 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         _actionInProgress = false;
         _checkInStageLabel = null;
       });
+      if (location == null) {
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(
+            SnackBar(
+              duration: const Duration(seconds: 3),
+              behavior: SnackBarBehavior.floating,
+              content: Text(
+                AppStrings.t(
+                  'Checked out without GPS coordinates — please check Location settings.',
+                  'เช็คเอาท์แล้วแต่จับพิกัด GPS ไม่ได้ — กรุณาเปิด Location',
+                  'Daftar keluar tanpa GPS — sila semak tetapan Lokasi.',
+                ),
+              ),
+            ),
+          );
+      }
       await _openTechnicianReport(completedSession);
     } catch (e) {
       if (!mounted) return;
@@ -1532,43 +1661,91 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final active = _techData?.activeSession;
     if (_actionInProgress || active == null) return;
 
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        key: const Key('confirm-technician-break-dialog'),
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.surface),
+        ),
+        title: Text(
+          AppStrings.t('Take a Break?', 'ยืนยันพักเบรก?', 'Mula Rehat?'),
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: AppColors.neutral,
+          ),
+        ),
+        content: Text(
+          AppStrings.t(
+            'Pause work timer for ${active.jobCode}? No photo required.',
+            'หยุดจับเวลางาน ${active.jobCode} ชั่วคราว (ไม่ต้องถ่ายรูป)',
+            'Hentikan pemasa ${active.jobCode} sementara? Tiada foto diperlukan.',
+          ),
+          style: TextStyle(
+            fontSize: 13.5,
+            height: 1.4,
+            color: AppColors.textSecondary,
+          ),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.neutral,
+                    side: BorderSide(color: AppColors.cardBorder),
+                    minimumSize: const Size(0, 44),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                    ),
+                  ),
+                  onPressed: () => Navigator.of(dialogCtx).pop(false),
+                  child: Text(
+                    AppStrings.t('Cancel', 'ยกเลิก', 'Batal'),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.neutral,
+                    foregroundColor: AppColors.onNeutral,
+                    minimumSize: const Size(0, 44),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                    ),
+                  ),
+                  onPressed: () => Navigator.of(dialogCtx).pop(true),
+                  child: Text(
+                    AppStrings.t('Take a Break', 'พักเบรก', 'Rehat'),
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
     setState(() {
       _actionInProgress = true;
       _actionError = null;
       _checkInStageLabel = AppStrings.t(
-        'Opening camera...',
-        'กำลังเปิดกล้อง...',
-        'Membuka kamera...',
+        'Recording break & GPS...',
+        'กำลังบันทึกเวลาพักและ GPS...',
+        'Merekod rehat & GPS...',
       );
     });
 
     try {
-      final captured = await Navigator.of(context).push<CapturedPhoto>(
-        MaterialPageRoute(builder: (_) => const AttendanceCameraScreen()),
-      );
-      if (captured == null || !mounted) return;
-
-      setState(
-        () => _checkInStageLabel = AppStrings.t(
-          'Uploading photo...',
-          'กำลังอัปโหลดรูปภาพ...',
-          'Memuat naik foto...',
-        ),
-      );
-      final uploadId = const Uuid().v4();
-      final storageKey = await AttendanceService.uploadAttendancePhoto(
-        captured,
-        uploadId,
-      );
-
-      if (!mounted) return;
-      setState(
-        () => _checkInStageLabel = AppStrings.t(
-          'Recording break & GPS...',
-          'กำลังบันทึกเวลาพักและ GPS...',
-          'Merekod rehat & GPS...',
-        ),
-      );
       final location = await LocationService.captureCurrentLocation();
 
       await TechnicianService.startBreak(
@@ -1576,7 +1753,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         latitude: location?.latitude,
         longitude: location?.longitude,
         accuracy: location?.accuracy,
-        photoStorageKey: storageKey,
       );
 
       if (!mounted) return;
@@ -1587,11 +1763,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             duration: const Duration(seconds: 3),
             behavior: SnackBarBehavior.floating,
             content: Text(
-              AppStrings.t(
-                'Break started for ${active.jobCode}',
-                'เริ่มพักเบรกงาน ${active.jobCode} แล้ว',
-                'Rehat dimulakan untuk ${active.jobCode}',
-              ),
+              '${AppStrings.t('Break started for ${active.jobCode}', 'เริ่มพักเบรกงาน ${active.jobCode} แล้ว', 'Rehat dimulakan untuk ${active.jobCode}')}${_gpsWarningSuffix(location)}',
             ),
           ),
         );
@@ -1670,11 +1842,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             duration: const Duration(seconds: 3),
             behavior: SnackBarBehavior.floating,
             content: Text(
-              AppStrings.t(
-                'Resumed work on ${breakSession.jobCode}',
-                'กลับเข้าทำงาน ${breakSession.jobCode} เรียบร้อยแล้ว',
-                'Kerja disambung pada ${breakSession.jobCode}',
-              ),
+              '${AppStrings.t('Resumed work on ${breakSession.jobCode}', 'กลับเข้าทำงาน ${breakSession.jobCode} เรียบร้อยแล้ว', 'Kerja disambung pada ${breakSession.jobCode}')}${_gpsWarningSuffix(location)}',
             ),
           ),
         );
@@ -1826,6 +1994,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         actionInProgress: _actionInProgress,
         stageLabel: _checkInStageLabel,
         errorMessage: _actionError,
+        alreadyClockedIn: _hasScannedAttendanceToday,
         onRetry: _loadInitial,
         onSelectJob: (job) => setState(() {
           _selectedTechJob = job;
