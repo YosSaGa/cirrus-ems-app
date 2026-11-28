@@ -6,6 +6,7 @@ import '../services/language_service.dart';
 import '../services/theme_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_bottom_nav.dart';
+import '../widgets/app_quick_drawer.dart';
 import '../widgets/app_side_nav.dart';
 import '../widgets/pay_wallet_card.dart';
 import 'attendance_screen.dart';
@@ -47,12 +48,14 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   int _index = 0;
 
   /// Lazily hydrate non-initial tabs on first visit so Splash -> Attendance
   /// only builds and fetches AttendanceScreen (eliminating the 4-tab startup
   /// build & network spike), while preserving state once visited.
   final Set<int> _visitedTabs = {0};
+  final ValueNotifier<bool> _attendanceTabActive = ValueNotifier<bool>(true);
 
   static final Listenable _shellListenable = Listenable.merge([
     ThemeService.themeModeNotifier,
@@ -62,30 +65,41 @@ class _MainShellState extends State<MainShell> {
   // Each tab listens for theme and language changes independently. Rebuilding
   // the screen widget with the same key refreshes colors and copy while
   // retaining its State.
-  static Widget _buildTab(int index) {
+  Widget _buildTab(int index) {
     switch (index) {
       case 0:
         return ListenableBuilder(
           listenable: _shellListenable,
-          builder: (_, _) =>
-              AttendanceScreen(key: const ValueKey('attendance-tab')),
+          builder: (_, _) => AttendanceScreen(
+            key: const ValueKey('attendance-tab'),
+            isTabActiveListenable: _attendanceTabActive,
+            onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+          ),
         );
       case 1:
         return ListenableBuilder(
           listenable: _shellListenable,
-          builder: (_, _) => HistoryScreen(key: const ValueKey('history-tab')),
+          builder: (_, _) => HistoryScreen(
+            key: const ValueKey('history-tab'),
+            onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+          ),
         );
       case 2:
         return ListenableBuilder(
           listenable: _shellListenable,
-          builder: (_, _) =>
-              WorkTrialScreen(key: const ValueKey('pay-leave-tab')),
+          builder: (_, _) => WorkTrialScreen(
+            key: const ValueKey('pay-leave-tab'),
+            onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+          ),
         );
       case 3:
       default:
         return ListenableBuilder(
           listenable: _shellListenable,
-          builder: (_, _) => ProfileScreen(key: const ValueKey('profile-tab')),
+          builder: (_, _) => ProfileScreen(
+            key: const ValueKey('profile-tab'),
+            onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+          ),
         );
     }
   }
@@ -100,6 +114,7 @@ class _MainShellState extends State<MainShell> {
         position.jumpTo(position.minScrollExtent);
       }
       PayWalletCard.resetAllToFront();
+      _attendanceTabActive.value = index == 0;
       setState(() {
         _visitedTabs.add(index);
         _index = index;
@@ -109,6 +124,7 @@ class _MainShellState extends State<MainShell> {
 
   @override
   void dispose() {
+    _attendanceTabActive.dispose();
     for (final controller in _scrollControllers) {
       controller.dispose();
     }
@@ -180,8 +196,10 @@ class _MainShellState extends State<MainShell> {
             );
           }
           return Scaffold(
+            key: _scaffoldKey,
             backgroundColor: AppColors.primary,
             extendBody: true,
+            drawer: const AppQuickDrawer(),
             body: IndexedStack(index: _index, children: _scopedTabs),
             bottomNavigationBar: AppBottomNav(
               currentIndex: _index,

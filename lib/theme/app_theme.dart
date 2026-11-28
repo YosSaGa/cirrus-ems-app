@@ -365,6 +365,15 @@ class AppTheme {
       colorScheme: colorScheme,
       scaffoldBackgroundColor: palette.primary,
       textTheme: textTheme,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: _SlideFadePageTransitionsBuilder(),
+          TargetPlatform.iOS: _SlideFadePageTransitionsBuilder(),
+          TargetPlatform.windows: _SlideFadePageTransitionsBuilder(),
+          TargetPlatform.macOS: _SlideFadePageTransitionsBuilder(),
+          TargetPlatform.linux: _SlideFadePageTransitionsBuilder(),
+        },
+      ),
       appBarTheme: AppBarTheme(
         backgroundColor: palette.primary,
         surfaceTintColor: Colors.transparent,
@@ -569,6 +578,38 @@ class AppTheme {
         fontWeight: FontWeight.w600,
         color: palette.textSecondary,
         height: isThai ? 1.45 : 1.4,
+      ),
+    );
+  }
+}
+
+class _SlideFadePageTransitionsBuilder extends PageTransitionsBuilder {
+  const _SlideFadePageTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return child;
+    }
+    final curved = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+    return FadeTransition(
+      opacity: curved,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0.04, 0),
+          end: Offset.zero,
+        ).animate(curved),
+        child: child,
       ),
     );
   }

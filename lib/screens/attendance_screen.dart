@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +13,7 @@ import '../services/attendance_service.dart';
 import '../services/auth_service.dart';
 import '../services/local_photo_store.dart';
 import '../services/location_service.dart';
+import '../services/photo_watermark_service.dart';
 import '../services/technician_service.dart';
 import '../services/work_timer_notification_service.dart';
 import '../theme/app_theme.dart';
@@ -32,7 +34,14 @@ import 'profile_screen.dart';
 import 'technician_report_screen.dart';
 
 class AttendanceScreen extends StatefulWidget {
-  const AttendanceScreen({super.key});
+  const AttendanceScreen({
+    super.key,
+    this.isTabActiveListenable,
+    this.onOpenDrawer,
+  });
+
+  final ValueListenable<bool>? isTabActiveListenable;
+  final VoidCallback? onOpenDrawer;
 
   @override
   State<AttendanceScreen> createState() => _AttendanceScreenState();
@@ -128,28 +137,53 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.isTabActiveListenable?.addListener(_onTabActiveChanged);
     _loadInitial();
     _loadUserName();
   }
 
   @override
   void dispose() {
+    widget.isTabActiveListenable?.removeListener(_onTabActiveChanged);
     _techPollTimer?.cancel();
     _attendancePollTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
+  bool get _isTabActive => widget.isTabActiveListenable?.value ?? true;
+
+  void _onTabActiveChanged() {
+    if (!mounted) return;
+    if (!_isTabActive) {
+      _attendancePollTimer?.cancel();
+      _attendancePollTimer = null;
+      _techPollTimer?.cancel();
+      _techPollTimer = null;
+      return;
+    }
+    if (!_isWidgetTest) {
+      _ensureAttendancePolling();
+      _pollAttendanceStatusSilently();
+    }
+    if (_isTechnician && !TechnicianService.isUsingMockOverride) {
+      _ensureTechnicianPolling();
+      _pollTechnicianJobsSilently();
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      if (!_isWidgetTest) {
-        _ensureAttendancePolling();
-        _pollAttendanceStatusSilently();
-      }
-      if (_isTechnician && !TechnicianService.isUsingMockOverride) {
-        _ensureTechnicianPolling();
-        _pollTechnicianJobsSilently();
+      if (_isTabActive) {
+        if (!_isWidgetTest) {
+          _ensureAttendancePolling();
+          _pollAttendanceStatusSilently();
+        }
+        if (_isTechnician && !TechnicianService.isUsingMockOverride) {
+          _ensureTechnicianPolling();
+          _pollTechnicianJobsSilently();
+        }
       }
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
@@ -161,15 +195,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   void _ensureAttendancePolling() {
-    if (_isWidgetTest) return;
+    if (_isWidgetTest || !_isTabActive) return;
     _attendancePollTimer ??= Timer.periodic(
-      const Duration(seconds: 15),
+      const Duration(seconds: 30),
       (_) => _pollAttendanceStatusSilently(),
     );
   }
 
   Future<void> _pollAttendanceStatusSilently() async {
     if (!mounted ||
+        !_isTabActive ||
         _isWidgetTest ||
         _attendancePollingInFlight ||
         _actionInProgress ||
@@ -189,6 +224,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         completedWindowCodes.addAll(_techData!.completedWindows);
       }
       if (!mounted || _navigatingToLogin) return;
+      final statusChanged = jsonEncode(status) != jsonEncode(_status);
+      final windowsChanged = !setEquals(
+        completedWindowCodes,
+        _completedWindowCodes,
+      );
+      if (!statusChanged && !windowsChanged && _statusError == null) return;
       setState(() {
         _status = status;
         _statusError = null;
@@ -204,15 +245,31 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   void _ensureTechnicianPolling() {
-    if (!_isTechnician || TechnicianService.isUsingMockOverride) return;
+    if (!_isTechnician || TechnicianService.isUsingMockOverride || !_isTabActive) {
+      return;
+    }
     _techPollTimer ??= Timer.periodic(
-      const Duration(seconds: 15),
+      const Duration(seconds: 30),
       (_) => _pollTechnicianJobsSilently(),
     );
   }
 
+  static String _techDashboardSignature(TechnicianDashboardData? data) {
+    if (data == null) return 'null';
+    final jobsSig = data.jobs
+        .map(
+          (j) =>
+              '${j.id}:${j.jobCode}:${j.status}:${j.reportSubmitted}:${j.lastCheckoutStatus}',
+        )
+        .join('|');
+    return '${data.workDate}|${data.activeSession?.id}|${data.breakSession?.id}|'
+        '${data.pendingReportSession?.id}|${data.todaySessions.length}|'
+        '${data.completedWindows.join(',')}|$jobsSig';
+  }
+
   Future<void> _pollTechnicianJobsSilently() async {
     if (!mounted ||
+        !_isTabActive ||
         !_isTechnician ||
         _techPollingInFlight ||
         _reportScreenOpen ||
@@ -222,7 +279,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
     _techPollingInFlight = true;
     try {
-      final fresh = await TechnicianService.getMyJobs();
+      final fresh = await TechnicianService.getMyJobs(
+        prefetchedAttendanceStatus: _status,
+      );
       if (!mounted) return;
 
       final prevIds = _knownTechJobIds;
@@ -233,22 +292,32 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 .where((j) => j.isSelectableForCheckIn && !prevIds.contains(j.id))
                 .toList();
 
-      setState(() {
-        _techData = fresh;
-        _knownTechJobIds = freshIds;
-        if (_selectedTechJob != null &&
-            !fresh.jobs.any(
-              (j) => j.id == _selectedTechJob!.id && j.isSelectableForCheckIn,
-            )) {
-          _selectedTechJob = null;
-        }
-        if (fresh.completedWindows.isNotEmpty) {
-          _completedWindowCodes = {
-            ..._completedWindowCodes,
-            ...fresh.completedWindows,
-          };
-        }
-      });
+      final selectionCleared =
+          _selectedTechJob != null &&
+          !fresh.jobs.any(
+            (j) => j.id == _selectedTechJob!.id && j.isSelectableForCheckIn,
+          );
+      final nextCompleted = {
+        ..._completedWindowCodes,
+        ...fresh.completedWindows,
+      };
+      final windowsChanged = !setEquals(nextCompleted, _completedWindowCodes);
+      final dataChanged =
+          _techDashboardSignature(fresh) !=
+          _techDashboardSignature(_techData);
+
+      if (dataChanged || selectionCleared || windowsChanged || prevIds == null) {
+        setState(() {
+          _techData = fresh;
+          _knownTechJobIds = freshIds;
+          if (selectionCleared) {
+            _selectedTechJob = null;
+          }
+          if (windowsChanged) {
+            _completedWindowCodes = nextCompleted;
+          }
+        });
+      }
 
       unawaited(
         WorkTimerNotificationService.syncForActiveSession(fresh.activeSession),
@@ -406,7 +475,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     Future<void> loadTechnician() async {
       if (!isTechnician) return;
       try {
-        techData = await TechnicianService.getMyJobs();
+        techData = await TechnicianService.getMyJobs(
+          forceRefreshReference: _techData != null,
+        );
       } catch (e) {
         techError = _genericErrorMessage(e);
       }
@@ -724,7 +795,18 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             await AttendanceService.clearProvisionalAttemptIfNoProgress();
             return;
           }
-          photo = captured;
+          final stampedBytes = await PhotoWatermarkService.applyWatermark(
+            captured.bytes,
+            timestamp: DateTime.now(),
+            actionLabel: windowCode,
+          );
+          photo = CapturedPhoto(
+            bytes: stampedBytes,
+            fileName: captured.fileName,
+            mimeType: identical(stampedBytes, captured.bytes)
+                ? captured.mimeType
+                : 'image/png',
+          );
 
           if (kIsWeb) {
             _webInMemoryPhoto = photo;
@@ -1185,6 +1267,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       backgroundColor: AppColors.primary,
       elevation: 0,
       iconTheme: IconThemeData(color: AppColors.neutral),
+      leading: widget.onOpenDrawer != null
+          ? IconButton(
+              key: const Key('open-quick-drawer-button'),
+              tooltip: AppStrings.t('Menu', 'เมนู', 'Menu'),
+              onPressed: widget.onOpenDrawer,
+              icon: const Icon(Icons.menu_rounded),
+            )
+          : null,
       title: Text(
         AppStrings.t('Attendance', 'ลงเวลา'),
         style: TextStyle(
@@ -1645,6 +1735,43 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
     if (confirmed != true || !mounted) return;
 
+    final checkInDt = DateTime.tryParse(active.checkInAt);
+    final elapsedMinutes = checkInDt == null
+        ? null
+        : DateTime.now().difference(checkInDt).inMinutes;
+    if (elapsedMinutes != null && elapsedMinutes >= 0 && elapsedMinutes < 5) {
+      final proceedEarly = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(
+            AppStrings.t(
+              'Checked In Just Now',
+              'เพิ่งสแกนเข้างานไปไม่ถึง 5 นาที',
+              'Baru Sahaja Daftar Masuk',
+            ),
+          ),
+          content: Text(
+            AppStrings.t(
+              'You checked into ${active.jobCode} less than 5 minutes ago. Are you sure you want to check out now?',
+              'คุณเพิ่งเช็คอินงาน ${active.jobCode} ไปเมื่อสักครู่ ยืนยันว่าต้องการเช็คเอาท์ทันทีหรือไม่?',
+              'Anda baru daftar masuk ${active.jobCode}. Pasti mahu daftar keluar?',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(AppStrings.t('Stay On Site', 'ทำต่อ', 'Teruskan')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(AppStrings.t('Check Out', 'ยืนยันเช็คเอาท์', 'Daftar Keluar')),
+            ),
+          ],
+        ),
+      );
+      if (proceedEarly != true || !mounted) return;
+    }
+
     setState(() {
       _actionInProgress = true;
       _actionError = null;
@@ -1881,6 +2008,43 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       ),
     );
     if (confirmed != true || !mounted) return;
+
+    final checkInDt = DateTime.tryParse(active.checkInAt);
+    final elapsedMinutes = checkInDt == null
+        ? null
+        : DateTime.now().difference(checkInDt).inMinutes;
+    if (elapsedMinutes != null && elapsedMinutes >= 0 && elapsedMinutes < 5) {
+      final proceedEarly = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(
+            AppStrings.t(
+              'Checked In Just Now',
+              'เพิ่งสแกนเข้างานไปไม่ถึง 5 นาที',
+              'Baru Sahaja Daftar Masuk',
+            ),
+          ),
+          content: Text(
+            AppStrings.t(
+              'You checked into ${active.jobCode} less than 5 minutes ago. Are you sure you want to check out now?',
+              'คุณเพิ่งเช็คอินงาน ${active.jobCode} ไปเมื่อสักครู่ ยืนยันว่าต้องการเช็คเอาท์ทันทีหรือไม่?',
+              'Anda baru daftar masuk ${active.jobCode}. Pasti mahu daftar keluar?',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(AppStrings.t('Stay On Site', 'ทำต่อ', 'Teruskan')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(AppStrings.t('Check Out', 'ยืนยันเช็คเอาท์', 'Daftar Keluar')),
+            ),
+          ],
+        ),
+      );
+      if (proceedEarly != true || !mounted) return;
+    }
 
     setState(() {
       _actionInProgress = true;

@@ -507,7 +507,15 @@ class _AttendanceCameraScreenState extends State<AttendanceCameraScreen>
                         color: Colors.white.withValues(alpha: 0.14),
                       ),
                     ),
-                    child: Image.memory(preview.bytes, fit: BoxFit.contain),
+                    child: Image.memory(
+                      preview.bytes,
+                      fit: BoxFit.contain,
+                      cacheWidth:
+                          (MediaQuery.sizeOf(context).width *
+                                  MediaQuery.devicePixelRatioOf(context))
+                              .round()
+                              .clamp(400, 2048),
+                    ),
                   ),
                 ),
               ),

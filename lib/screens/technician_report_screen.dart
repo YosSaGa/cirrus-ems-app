@@ -51,7 +51,6 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
   String? _submitStageLabel;
   String? _error;
   Timer? _draftDebounce;
-  Timer? _deadlineTimer;
   bool _draftRestored = false;
 
   String get _draftKey =>
@@ -74,11 +73,6 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
     _findingsController.addListener(_scheduleSaveDraft);
     _recommendController.addListener(_scheduleSaveDraft);
     _restoreDraft();
-    if (widget.session != null) {
-      _deadlineTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-        if (mounted) setState(() {});
-      });
-    }
   }
 
   @override
@@ -164,7 +158,6 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _draftDebounce?.cancel();
-    _deadlineTimer?.cancel();
     _descController.dispose();
     _findingsController.dispose();
     _recommendController.dispose();
@@ -176,89 +169,6 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
     final dt = DateTime.tryParse(iso)?.toLocal();
     if (dt == null) return '--:--';
     return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-  }
-
-  String _formatLateDuration(int minutes) {
-    if (minutes < 60) {
-      return AppStrings.t('$minutes min', '$minutes นาที', '$minutes minit');
-    }
-    final h = minutes ~/ 60;
-    final m = minutes % 60;
-    return AppStrings.t(
-      '${h}h ${m}m ($minutes min)',
-      '$h ชม. $m นาที ($minutes นาที)',
-      '${h}j ${m}m ($minutes minit)',
-    );
-  }
-
-  Widget _buildDeadlineBanner(TechnicianWorkSession session) {
-    final lateMinutes = session.reportLateMinutes();
-    if (lateMinutes > 0) {
-      return Container(
-        key: const Key('report-late-banner'),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-        decoration: BoxDecoration(
-          color: AppColors.error.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(AppRadius.input),
-          border: Border.all(color: AppColors.error.withValues(alpha: 0.45)),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.timer_off_outlined, size: 20, color: AppColors.error),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                AppStrings.t(
-                  'Overdue by ${_formatLateDuration(lateMinutes)} (past 07:00 deadline)',
-                  'ส่งรายงานเกินกำหนด 07:00 น. แล้ว ${_formatLateDuration(lateMinutes)}',
-                  'Lewat ${_formatLateDuration(lateMinutes)} (melepasi had 07:00)',
-                ),
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.error,
-                  height: 1.3,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-    final remaining = session.reportRemainingTime();
-    if (remaining == null) return const SizedBox.shrink();
-    final h = remaining.inHours;
-    final m = remaining.inMinutes % 60;
-    return Container(
-      key: const Key('report-deadline-banner'),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-      decoration: BoxDecoration(
-        color: AppColors.warningContainer,
-        borderRadius: BorderRadius.circular(AppRadius.input),
-        border: Border.all(color: AppColors.warning.withValues(alpha: 0.45)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.schedule_rounded, size: 20, color: AppColors.warning),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              AppStrings.t(
-                'Submit before 07:00 tomorrow (${h}h ${m}m left)',
-                'กรุณาส่งรายงานก่อน 07:00 น. วันถัดไป (เหลือ $h ชม. $m นาที)',
-                'Hantar sebelum 07:00 esok (baki ${h}j ${m}m)',
-              ),
-              style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w700,
-                color: AppColors.onWarningContainer,
-                height: 1.3,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _addPhoto() async {
@@ -454,6 +364,11 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
                   child: Image.memory(
                     _photos[index].bytes,
                     fit: BoxFit.contain,
+                    cacheWidth:
+                        (MediaQuery.sizeOf(context).width *
+                                MediaQuery.devicePixelRatioOf(context))
+                            .round()
+                            .clamp(400, 2048),
                   ),
                 ),
               ),
@@ -894,7 +809,7 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
                     ),
                     const SizedBox(height: 16),
                     if (s != null) ...[
-                      _buildDeadlineBanner(s),
+                      _ReportDeadlineBanner(session: s),
                       const SizedBox(height: 12),
                     ],
                     if (_error != null) ...[
@@ -1067,6 +982,13 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
                                             width: 92,
                                             height: 92,
                                             fit: BoxFit.cover,
+                                            cacheWidth:
+                                                (92 *
+                                                        MediaQuery.devicePixelRatioOf(
+                                                          context,
+                                                        ))
+                                                    .round()
+                                                    .clamp(92, 400),
                                           ),
                                         ),
                                       ),
@@ -1313,4 +1235,116 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
           ],
         ),
       );
+}
+
+/// Self-contained deadline banner so its 30s ticker never rebuilds the form.
+class _ReportDeadlineBanner extends StatefulWidget {
+  const _ReportDeadlineBanner({required this.session});
+
+  final TechnicianWorkSession session;
+
+  @override
+  State<_ReportDeadlineBanner> createState() => _ReportDeadlineBannerState();
+}
+
+class _ReportDeadlineBannerState extends State<_ReportDeadlineBanner> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String _formatLateDuration(int minutes) {
+    if (minutes < 60) {
+      return AppStrings.t('$minutes min', '$minutes นาที', '$minutes minit');
+    }
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return AppStrings.t(
+      '${h}h ${m}m ($minutes min)',
+      '$h ชม. $m นาที ($minutes นาที)',
+      '${h}j ${m}m ($minutes minit)',
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final lateMinutes = widget.session.reportLateMinutes();
+    if (lateMinutes > 0) {
+      return Container(
+        key: const Key('report-late-banner'),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        decoration: BoxDecoration(
+          color: AppColors.error.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(AppRadius.input),
+          border: Border.all(color: AppColors.error.withValues(alpha: 0.45)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.timer_off_outlined, size: 20, color: AppColors.error),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                AppStrings.t(
+                  'Overdue by ${_formatLateDuration(lateMinutes)} (past 07:00 deadline)',
+                  'ส่งรายงานเกินกำหนด 07:00 น. แล้ว ${_formatLateDuration(lateMinutes)}',
+                  'Lewat ${_formatLateDuration(lateMinutes)} (melepasi had 07:00)',
+                ),
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.error,
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final remaining = widget.session.reportRemainingTime();
+    if (remaining == null) return const SizedBox.shrink();
+    final h = remaining.inHours;
+    final m = remaining.inMinutes % 60;
+    return Container(
+      key: const Key('report-deadline-banner'),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      decoration: BoxDecoration(
+        color: AppColors.warningContainer,
+        borderRadius: BorderRadius.circular(AppRadius.input),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.schedule_rounded, size: 20, color: AppColors.warning),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              AppStrings.t(
+                'Submit before 07:00 tomorrow (${h}h ${m}m left)',
+                'กรุณาส่งรายงานก่อน 07:00 น. วันถัดไป (เหลือ $h ชม. $m นาที)',
+                'Hantar sebelum 07:00 esok (baki ${h}j ${m}m)',
+              ),
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: AppColors.onWarningContainer,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

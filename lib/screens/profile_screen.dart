@@ -53,7 +53,9 @@ import 'settings_screen.dart';
 // `core.employees.employee_code`, see ems-backend's own `auth.service.ts`
 // for that half of this round's change).
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({super.key, this.onOpenDrawer});
+
+  final VoidCallback? onOpenDrawer;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -809,6 +811,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return Scaffold(
           backgroundColor: AppColors.primary,
           appBar: AppBar(
+            leading: widget.onOpenDrawer != null
+                ? IconButton(
+                    tooltip: AppStrings.t('Menu', 'เมนู', 'Menu'),
+                    onPressed: widget.onOpenDrawer,
+                    icon: const Icon(Icons.menu_rounded),
+                  )
+                : null,
             title: Text(AppStrings.t('Profile', 'โปรไฟล์')),
             actions: [
               IconButton(

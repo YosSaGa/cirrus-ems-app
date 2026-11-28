@@ -41,7 +41,9 @@ import 'login_screen.dart';
 // already in flight -- unchanged since v141/v143, preserved exactly, per
 // v146 §7.
 class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key});
+  const HistoryScreen({super.key, this.onOpenDrawer});
+
+  final VoidCallback? onOpenDrawer;
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
@@ -556,6 +558,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   bool _recalculating = false;
   bool _showAllScans = false;
   _HistoryScanFilter _scanFilter = _HistoryScanFilter.all;
+  final GlobalKey _scanHistorySectionKey = GlobalKey();
 
   bool _navigatingToLogin = false;
 
@@ -769,6 +772,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
     setState(() {
       _scanFilter = _scanFilter == filter ? _HistoryScanFilter.all : filter;
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final ctx = _scanHistorySectionKey.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 360),
+          curve: Curves.easeOutCubic,
+          alignment: 0.04,
+        );
+      }
+    });
   }
 
   String _filterLabel(_HistoryScanFilter filter) {
@@ -805,6 +820,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return Scaffold(
       backgroundColor: AppColors.primary,
       appBar: AppBar(
+        leading: widget.onOpenDrawer != null
+            ? IconButton(
+                tooltip: AppStrings.t('Menu', 'เมนู', 'Menu'),
+                onPressed: widget.onOpenDrawer,
+                icon: const Icon(Icons.menu_rounded),
+              )
+            : null,
         title: Text(AppStrings.t('Attendance History', 'ประวัติการลงเวลา')),
         actions: [
           IconButton(
@@ -909,6 +931,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         ),
                         const SizedBox(height: AppSpacing.xl),
                         Row(
+                          key: _scanHistorySectionKey,
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Expanded(
@@ -2633,7 +2656,7 @@ class _MonthlyScanStatsGrid extends StatelessWidget {
                   'hari direkod',
                 ),
                 selected: false,
-                onTap: activeFilter != _HistoryScanFilter.all
+                onTap: stats.workDays > 0
                     ? () => onToggleFilter(_HistoryScanFilter.all)
                     : null,
               ),

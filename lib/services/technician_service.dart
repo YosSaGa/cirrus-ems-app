@@ -435,6 +435,26 @@ class TechnicianService {
   /// True when a test override is active (used to disable live background polling in tests).
   static bool get isUsingMockOverride => getMyJobsOverride != null;
 
+  static http.Client _client = createApiClient();
+
+  @visibleForTesting
+  static void debugOverrideClient(http.Client client) {
+    _client = client;
+  }
+
+  @visibleForTesting
+  static void debugResetClient() {
+    _client = createApiClient();
+  }
+
+  static const Duration _referenceCacheTtl = Duration(minutes: 5);
+  static String? _nestFallbackBaseUrl;
+  static DateTime? _refCacheLoadedAt;
+  static List<Map<String, dynamic>>? _cachedProjects;
+  static List<Map<String, dynamic>>? _cachedVessels;
+  static List<Map<String, dynamic>>? _cachedAssets;
+  static List<Map<String, dynamic>>? _cachedTeamMembers;
+
   static String? _cachedTeamMemberUserId;
   static String? _cachedTeamMemberId;
   static TechnicianDashboardData? lastDashboardData;
@@ -443,6 +463,56 @@ class TechnicianService {
     lastDashboardData = null;
     _cachedTeamMemberUserId = null;
     _cachedTeamMemberId = null;
+    _nestFallbackBaseUrl = null;
+    _refCacheLoadedAt = null;
+    _cachedProjects = null;
+    _cachedVessels = null;
+    _cachedAssets = null;
+    _cachedTeamMembers = null;
+  }
+
+  static Future<({
+    List<Map<String, dynamic>> projects,
+    List<Map<String, dynamic>> vessels,
+    List<Map<String, dynamic>> assets,
+    List<Map<String, dynamic>> teamMembers,
+  })> _getReferenceData(
+    http.Client client,
+    Map<String, String> headers, {
+    bool forceRefresh = false,
+  }) async {
+    final loadedAt = _refCacheLoadedAt;
+    if (!forceRefresh &&
+        loadedAt != null &&
+        DateTime.now().difference(loadedAt) < _referenceCacheTtl &&
+        _cachedProjects != null &&
+        _cachedVessels != null &&
+        _cachedAssets != null &&
+        _cachedTeamMembers != null) {
+      return (
+        projects: _cachedProjects!,
+        vessels: _cachedVessels!,
+        assets: _cachedAssets!,
+        teamMembers: _cachedTeamMembers!,
+      );
+    }
+    final res = await Future.wait<List<Map<String, dynamic>>>([
+      _safeGetList(client, headers, '/projects'),
+      _safeGetList(client, headers, '/vessels'),
+      _safeGetList(client, headers, '/assets'),
+      _safeGetList(client, headers, '/team-members'),
+    ]);
+    _cachedProjects = res[0];
+    _cachedVessels = res[1];
+    _cachedAssets = res[2];
+    _cachedTeamMembers = res[3];
+    _refCacheLoadedAt = DateTime.now();
+    return (
+      projects: res[0],
+      vessels: res[1],
+      assets: res[2],
+      teamMembers: res[3],
+    );
   }
 
   /// Matches the signed-in user against `GET /team-members` so we know their
@@ -815,7 +885,7 @@ class TechnicianService {
           .get(_paginatedUri(path, page, pageSize), headers: headers)
           .timeout(const Duration(seconds: 15));
       if (res.statusCode < 200 || res.statusCode >= 300) {
-        if (throwOnError && page == 1) {
+        if (res.statusCode == 401 || (throwOnError && page == 1)) {
           final errBody = _decodeJson(res);
           throw TechnicianApiException(
             statusCode: res.statusCode,
@@ -839,6 +909,13 @@ class TechnicianService {
     return all;
   }
 
+  static int _compareIsoTimestamps(String a, String b) {
+    final dtA = DateTime.tryParse(a)?.toUtc();
+    final dtB = DateTime.tryParse(b)?.toUtc();
+    if (dtA != null && dtB != null) return dtA.compareTo(dtB);
+    return a.compareTo(b);
+  }
+
   static Future<List<Map<String, dynamic>>> _safeGetList(
     http.Client client,
     Map<String, String> headers,
@@ -846,14 +923,18 @@ class TechnicianService {
   ) async {
     try {
       return await _getPaginatedList(client, headers, path);
+    } on TechnicianApiException catch (e) {
+      if (e.statusCode == 401) rethrow;
     } catch (_) {}
     return const <Map<String, dynamic>>[];
   }
 
   static Future<TechnicianDashboardData> _getMyJobsFromNestApi(
     http.Client client,
-    Map<String, String> headers,
-  ) async {
+    Map<String, String> headers, {
+    bool forceRefreshReference = false,
+    Map<String, dynamic>? prefetchedAttendanceStatus,
+  }) async {
     final rawOrders = await _getPaginatedList(
       client,
       headers,
@@ -870,23 +951,31 @@ class TechnicianService {
       _safeGetList(client, headers, '/work-assignments'),
       _safeGetList(client, headers, '/work-sessions'),
       _safeGetList(client, headers, '/technician-reports'),
-      AttendanceService.getAttendanceStatus().catchError(
-        (_) => <String, dynamic>{},
-      ),
-      _safeGetList(client, headers, '/projects'),
-      _safeGetList(client, headers, '/vessels'),
-      _safeGetList(client, headers, '/assets'),
-      _safeGetList(client, headers, '/team-members'),
+      if (prefetchedAttendanceStatus != null)
+        Future<Map<String, dynamic>>.value(prefetchedAttendanceStatus)
+      else
+        AttendanceService.getAttendanceStatus().catchError(
+          (_) => <String, dynamic>{},
+        ),
+      _getReferenceData(client, headers, forceRefresh: forceRefreshReference),
     ]);
 
     final rawAssignments = results[0] as List<Map<String, dynamic>>;
     final rawSessions = results[1] as List<Map<String, dynamic>>;
     final rawReports = results[2] as List<Map<String, dynamic>>;
     final attStatus = results[3] as Map<String, dynamic>;
-    final rawProjects = results[4] as List<Map<String, dynamic>>;
-    final rawVessels = results[5] as List<Map<String, dynamic>>;
-    final rawAssets = results[6] as List<Map<String, dynamic>>;
-    final rawTeamMembers = results[7] as List<Map<String, dynamic>>;
+    final refs =
+        results[4]
+            as ({
+              List<Map<String, dynamic>> projects,
+              List<Map<String, dynamic>> vessels,
+              List<Map<String, dynamic>> assets,
+              List<Map<String, dynamic>> teamMembers,
+            });
+    final rawProjects = refs.projects;
+    final rawVessels = refs.vessels;
+    final rawAssets = refs.assets;
+    final rawTeamMembers = refs.teamMembers;
 
     final resolvedTeamMemberId = _resolveTeamMemberFromList(
       rawTeamMembers,
@@ -1367,7 +1456,8 @@ class TechnicianService {
         final existingStamp = existing == null
             ? ''
             : (existing.checkOutAt ?? existing.checkInAt);
-        if (existing == null || currentStamp.compareTo(existingStamp) >= 0) {
+        if (existing == null ||
+            _compareIsoTimestamps(currentStamp, existingStamp) >= 0) {
           latestReportedByOrder[woId] = parsed;
         }
       }
@@ -1440,7 +1530,7 @@ class TechnicianService {
     TechnicianJob? fallback,
   }) async {
     if (isUsingMockOverride || jobId.isEmpty) return fallback;
-    final client = createApiClient();
+    final client = _client;
     try {
       final headers = await _authHeaders();
       final res = await client
@@ -1623,12 +1713,9 @@ class TechnicianService {
           ]) ??
           _pickStr(rawAssetMap, const ['id']);
 
-      final vesselAndAsset = await Future.wait<List<Map<String, dynamic>>>([
-        _safeGetList(client, headers, '/vessels'),
-        _safeGetList(client, headers, '/assets'),
-      ]);
-      final vessels = vesselAndAsset[0];
-      final assets = vesselAndAsset[1];
+      final refs = await _getReferenceData(client, headers);
+      final vessels = refs.vessels;
+      final assets = refs.assets;
 
       Map<String, dynamic> matchedVessel = {...rawVesselMap};
       for (final v in vessels) {
@@ -1801,45 +1888,60 @@ class TechnicianService {
       );
     } catch (_) {
       return fallback;
-    } finally {
-      client.close();
     }
   }
 
-  static Future<TechnicianDashboardData> getMyJobs() async {
+  static Future<TechnicianDashboardData> getMyJobs({
+    bool forceRefreshReference = false,
+    Map<String, dynamic>? prefetchedAttendanceStatus,
+  }) async {
     if (getMyJobsOverride != null) {
       final data = await getMyJobsOverride!();
       lastDashboardData = data;
       return data;
     }
 
-    final client = createApiClient();
-    try {
-      final headers = await _authHeaders();
-      final res = await client
-          .get(
-            Uri.parse('${AuthService.baseUrl}/technician/my-jobs'),
-            headers: headers,
-          )
-          .timeout(const Duration(seconds: 15));
-      if (res.statusCode == 404) {
-        final data = await _getMyJobsFromNestApi(client, headers);
-        lastDashboardData = data;
-        return data;
-      }
-      final body = _decodeJson(res);
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        final data = TechnicianDashboardData.fromJson(body);
-        lastDashboardData = data;
-        return data;
-      }
-      throw TechnicianApiException(
-        statusCode: res.statusCode,
-        message: body['message']?.toString() ?? 'Failed to load assigned jobs.',
+    final client = _client;
+    final headers = await _authHeaders();
+    final baseUrl = AuthService.baseUrl;
+    if (_nestFallbackBaseUrl == baseUrl) {
+      final data = await _getMyJobsFromNestApi(
+        client,
+        headers,
+        forceRefreshReference: forceRefreshReference,
+        prefetchedAttendanceStatus: prefetchedAttendanceStatus,
       );
-    } finally {
-      client.close();
+      lastDashboardData = data;
+      return data;
     }
+
+    final res = await client
+        .get(
+          Uri.parse('$baseUrl/technician/my-jobs'),
+          headers: headers,
+        )
+        .timeout(const Duration(seconds: 15));
+    if (res.statusCode == 404) {
+      _nestFallbackBaseUrl = baseUrl;
+      final data = await _getMyJobsFromNestApi(
+        client,
+        headers,
+        forceRefreshReference: forceRefreshReference,
+        prefetchedAttendanceStatus: prefetchedAttendanceStatus,
+      );
+      lastDashboardData = data;
+      return data;
+    }
+    final body = _decodeJson(res);
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      final data = TechnicianDashboardData.fromJson(body);
+      lastDashboardData = data;
+      return data;
+    }
+    throw TechnicianApiException(
+      statusCode: res.statusCode,
+      message: body['message']?.toString() ?? 'Failed to load assigned jobs.',
+    );
   }
 
   static Future<Map<String, dynamic>> checkIn({
@@ -1867,49 +1969,45 @@ class TechnicianService {
       return res;
     }
 
-    final client = createApiClient();
-    try {
-      final headers = await _authHeaders();
-      final res = await client
-          .post(
-            Uri.parse('${AuthService.baseUrl}/technician/check-in'),
-            headers: headers,
-            body: jsonEncode({
-              'jobId': jobId,
-              'jobSource': jobSource,
-              'windowCode': windowCode,
-              'latitude': latitude,
-              'longitude': longitude,
-              'accuracy': accuracy,
-              'photoStorageKey': photoStorageKey,
-              'notes': notes,
-            }),
-          )
-          .timeout(const Duration(seconds: 20));
-      if (res.statusCode == 404) {
-        return await _checkInViaNestApi(
-          client: client,
+    final client = _client;
+    final headers = await _authHeaders();
+    final res = await client
+        .post(
+          Uri.parse('${AuthService.baseUrl}/technician/check-in'),
           headers: headers,
-          jobId: jobId,
-          latitude: latitude,
-          longitude: longitude,
-          accuracy: accuracy,
-          photoStorageKey: photoStorageKey,
-          notes: notes,
-        );
-      }
-      final body = _decodeJson(res);
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        AttendanceService.attendanceUpdatedNotifier.value++;
-        return body;
-      }
-      throw TechnicianApiException(
-        statusCode: res.statusCode,
-        message: body['message']?.toString() ?? 'Failed to check in.',
+          body: jsonEncode({
+            'jobId': jobId,
+            'jobSource': jobSource,
+            'windowCode': windowCode,
+            'latitude': latitude,
+            'longitude': longitude,
+            'accuracy': accuracy,
+            'photoStorageKey': photoStorageKey,
+            'notes': notes,
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (res.statusCode == 404) {
+      return await _checkInViaNestApi(
+        client: client,
+        headers: headers,
+        jobId: jobId,
+        latitude: latitude,
+        longitude: longitude,
+        accuracy: accuracy,
+        photoStorageKey: photoStorageKey,
+        notes: notes,
       );
-    } finally {
-      client.close();
     }
+    final body = _decodeJson(res);
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      AttendanceService.attendanceUpdatedNotifier.value++;
+      return body;
+    }
+    throw TechnicianApiException(
+      statusCode: res.statusCode,
+      message: body['message']?.toString() ?? 'Failed to check in.',
+    );
   }
 
   static Future<Map<String, dynamic>> _checkInViaNestApi({
@@ -2029,51 +2127,47 @@ class TechnicianService {
       return res;
     }
 
-    final client = createApiClient();
-    try {
-      final headers = await _authHeaders();
-      final res = await client
-          .post(
-            Uri.parse('${AuthService.baseUrl}/technician/check-out'),
-            headers: headers,
-            body: jsonEncode({
-              'sessionId': sessionId,
-              'windowCode': windowCode,
-              'jobStatus': jobStatus,
-              'latitude': latitude,
-              'longitude': longitude,
-              'accuracy': accuracy,
-              'photoStorageKey': photoStorageKey,
-              'notes': notes,
-            }),
-          )
-          .timeout(const Duration(seconds: 20));
-      if (res.statusCode == 404) {
-        return await _closeSessionViaNestApi(
-          client: client,
+    final client = _client;
+    final headers = await _authHeaders();
+    final res = await client
+        .post(
+          Uri.parse('${AuthService.baseUrl}/technician/check-out'),
           headers: headers,
-          sessionId: sessionId,
-          jobStatus: jobStatus,
-          latitude: latitude,
-          longitude: longitude,
-          accuracy: accuracy,
-          photoStorageKey: photoStorageKey,
-          notes: notes,
-          recordAttendance: true,
-        );
-      }
-      final body = _decodeJson(res);
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        AttendanceService.attendanceUpdatedNotifier.value++;
-        return body;
-      }
-      throw TechnicianApiException(
-        statusCode: res.statusCode,
-        message: body['message']?.toString() ?? 'Failed to check out.',
+          body: jsonEncode({
+            'sessionId': sessionId,
+            'windowCode': windowCode,
+            'jobStatus': jobStatus,
+            'latitude': latitude,
+            'longitude': longitude,
+            'accuracy': accuracy,
+            'photoStorageKey': photoStorageKey,
+            'notes': notes,
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (res.statusCode == 404) {
+      return await _closeSessionViaNestApi(
+        client: client,
+        headers: headers,
+        sessionId: sessionId,
+        jobStatus: jobStatus,
+        latitude: latitude,
+        longitude: longitude,
+        accuracy: accuracy,
+        photoStorageKey: photoStorageKey,
+        notes: notes,
+        recordAttendance: true,
       );
-    } finally {
-      client.close();
     }
+    final body = _decodeJson(res);
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      AttendanceService.attendanceUpdatedNotifier.value++;
+      return body;
+    }
+    throw TechnicianApiException(
+      statusCode: res.statusCode,
+      message: body['message']?.toString() ?? 'Failed to check out.',
+    );
   }
 
   static Future<Map<String, dynamic>> _closeSessionViaNestApi({
@@ -2201,6 +2295,11 @@ class TechnicianService {
         message:
             body['message']?.toString() ?? 'Failed to confirm job status.',
       );
+      if (res.statusCode == 401 ||
+          res.statusCode == 403 ||
+          res.statusCode >= 500) {
+        break;
+      }
     }
     if (lastError != null) {
       throw TechnicianApiException(
@@ -2232,142 +2331,134 @@ class TechnicianService {
       );
     }
 
-    final client = createApiClient();
-    try {
-      final headers = await _authHeaders();
-      final res = await client
+    final client = _client;
+    final headers = await _authHeaders();
+    final res = await client
+        .post(
+          Uri.parse('${AuthService.baseUrl}/technician/reports'),
+          headers: headers,
+          body: jsonEncode({
+            'sessionId': sessionId,
+            'workDescription': workDescription,
+            'workType': workType,
+            'findings': findings,
+            'recommendations': recommendations,
+            'photos': photos,
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (res.statusCode == 404) {
+      final user = await AuthService.getSavedUser();
+      final userId = user?['id']?.toString().trim();
+      final formattedDesc = [
+        workDescription.trim(),
+        if (findings != null && findings.trim().isNotEmpty)
+          '[ปัญหาที่พบ / Issues]\n${findings.trim()}',
+        if (recommendations != null && recommendations.trim().isNotEmpty)
+          '[งานค้างต่อ / Recommendations]\n${recommendations.trim()}',
+      ].join('\n\n');
+
+      final reportPayload = jsonEncode({
+        if (sessionId.isNotEmpty) 'workSessionId': sessionId,
+        if (workOrderId != null && workOrderId.isNotEmpty)
+          'workOrderId': workOrderId,
+        if (userId != null && userId.isNotEmpty) 'technicianId': userId,
+        'workDescription': formattedDesc,
+        'workType': workType,
+        'photos': photos,
+        'status': 'submitted',
+      });
+
+      var nestRes = await client
           .post(
-            Uri.parse('${AuthService.baseUrl}/technician/reports'),
+            Uri.parse('${AuthService.baseUrl}/technician-reports'),
             headers: headers,
-            body: jsonEncode({
-              'sessionId': sessionId,
-              'workDescription': workDescription,
-              'workType': workType,
-              'findings': findings,
-              'recommendations': recommendations,
-              'photos': photos,
-            }),
+            body: reportPayload,
           )
           .timeout(const Duration(seconds: 20));
-      if (res.statusCode == 404) {
-        final user = await AuthService.getSavedUser();
-        final userId = user?['id']?.toString().trim();
-        final formattedDesc = [
-          workDescription.trim(),
-          if (findings != null && findings.trim().isNotEmpty)
-            '[ปัญหาที่พบ / Issues]\n${findings.trim()}',
-          if (recommendations != null && recommendations.trim().isNotEmpty)
-            '[งานค้างต่อ / Recommendations]\n${recommendations.trim()}',
-        ].join('\n\n');
-
-        final reportPayload = jsonEncode({
-          if (sessionId.isNotEmpty) 'workSessionId': sessionId,
-          if (workOrderId != null && workOrderId.isNotEmpty)
-            'workOrderId': workOrderId,
-          if (userId != null && userId.isNotEmpty) 'technicianId': userId,
-          'workDescription': formattedDesc,
-          'workType': workType,
-          'photos': photos,
-          'status': 'submitted',
-        });
-
-        var nestRes = await client
+      var nestBody = _decodeJson(nestRes);
+      final errText = (nestBody['message'] ?? '').toString().toLowerCase();
+      if (nestRes.statusCode >= 400 &&
+          nestRes.statusCode < 500 &&
+          sessionId.isNotEmpty &&
+          errText.contains('confirm the job status')) {
+        if (jobStatusAtCheckout != 'completed' &&
+            jobStatusAtCheckout != 'in_progress') {
+          throw TechnicianApiException(
+            statusCode: nestRes.statusCode,
+            message: 'Unable to confirm the job status. Refresh the session and try again.',
+          );
+        }
+        await _confirmJobStatusViaNestApi(
+          client: client,
+          headers: headers,
+          sessionId: sessionId,
+          jobStatus: jobStatusAtCheckout!,
+        );
+        nestRes = await client
             .post(
               Uri.parse('${AuthService.baseUrl}/technician-reports'),
               headers: headers,
               body: reportPayload,
             )
             .timeout(const Duration(seconds: 20));
-        var nestBody = _decodeJson(nestRes);
-        final errText = (nestBody['message'] ?? '').toString().toLowerCase();
-        if (nestRes.statusCode >= 400 &&
-            nestRes.statusCode < 500 &&
-            sessionId.isNotEmpty &&
-            errText.contains('confirm the job status')) {
-          if (jobStatusAtCheckout != 'completed' &&
-              jobStatusAtCheckout != 'in_progress') {
-            throw TechnicianApiException(
-              statusCode: nestRes.statusCode,
-              message: 'Unable to confirm the job status. Refresh the session and try again.',
-            );
-          }
-          await _confirmJobStatusViaNestApi(
-            client: client,
-            headers: headers,
-            sessionId: sessionId,
-            jobStatus: jobStatusAtCheckout!,
-          );
-          nestRes = await client
-              .post(
-                Uri.parse('${AuthService.baseUrl}/technician-reports'),
-                headers: headers,
-                body: reportPayload,
-              )
-              .timeout(const Duration(seconds: 20));
-          nestBody = _decodeJson(nestRes);
-        }
-        if (nestRes.statusCode >= 200 && nestRes.statusCode < 300) {
-          return {'report': nestBody['data'] ?? nestBody};
-        }
-        throw TechnicianApiException(
-          statusCode: nestRes.statusCode,
-          message:
-              nestBody['message']?.toString() ?? 'Failed to submit work report.',
-        );
+        nestBody = _decodeJson(nestRes);
       }
-      final body = _decodeJson(res);
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        return body;
+      if (nestRes.statusCode >= 200 && nestRes.statusCode < 300) {
+        return {'report': nestBody['data'] ?? nestBody};
       }
       throw TechnicianApiException(
-        statusCode: res.statusCode,
-        message: body['message']?.toString() ?? 'Failed to submit work report.',
+        statusCode: nestRes.statusCode,
+        message:
+            nestBody['message']?.toString() ?? 'Failed to submit work report.',
       );
-    } finally {
-      client.close();
     }
+    final body = _decodeJson(res);
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      return body;
+    }
+    throw TechnicianApiException(
+      statusCode: res.statusCode,
+      message: body['message']?.toString() ?? 'Failed to submit work report.',
+    );
   }
 
   static Future<TechnicianHistoryResponse> getHistory() async {
     if (getHistoryOverride != null) return getHistoryOverride!();
 
-    final client = createApiClient();
-    try {
-      final headers = await _authHeaders();
-      final res = await client
-          .get(
-            Uri.parse('${AuthService.baseUrl}/technician/history'),
-            headers: headers,
-          )
-          .timeout(const Duration(seconds: 15));
-      if (res.statusCode == 404) {
-        return await _getHistoryFromNestApi(client, headers);
-      }
-      final body = _decodeJson(res);
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        final rawItems = body['items'];
-        final items = rawItems is List
-            ? rawItems
-                .whereType<Map>()
-                .map(
-                  (m) => TechnicianHistoryItem.fromJson(
-                    Map<String, dynamic>.from(m),
-                  ),
-                )
-                .toList(growable: false)
-            : const <TechnicianHistoryItem>[];
-        return TechnicianHistoryResponse(
-          isAdmin: body['isAdmin'] == true,
-          items: items,
-        );
-      }
-      throw TechnicianApiException(
-        statusCode: res.statusCode,
-        message: body['message']?.toString() ?? 'Failed to load job history.',
-      );
-    } finally {
-      client.close();
+    final client = _client;
+    final headers = await _authHeaders();
+    final res = await client
+        .get(
+          Uri.parse('${AuthService.baseUrl}/technician/history'),
+          headers: headers,
+        )
+        .timeout(const Duration(seconds: 15));
+    if (res.statusCode == 404) {
+      return await _getHistoryFromNestApi(client, headers);
     }
+    final body = _decodeJson(res);
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      final rawItems = body['items'];
+      final items = rawItems is List
+          ? rawItems
+              .whereType<Map>()
+              .map(
+                (m) => TechnicianHistoryItem.fromJson(
+                  Map<String, dynamic>.from(m),
+                ),
+              )
+              .toList(growable: false)
+          : const <TechnicianHistoryItem>[];
+      return TechnicianHistoryResponse(
+        isAdmin: body['isAdmin'] == true,
+        items: items,
+      );
+    }
+    throw TechnicianApiException(
+      statusCode: res.statusCode,
+      message: body['message']?.toString() ?? 'Failed to load job history.',
+    );
   }
 
   static Future<TechnicianHistoryResponse> _getHistoryFromNestApi(
@@ -2381,16 +2472,24 @@ class TechnicianService {
     final roles = await AuthService.getSavedRoles();
     final isAdmin = roles.any((r) => r.trim().toLowerCase() == 'admin');
 
-    final results = await Future.wait<List<Map<String, dynamic>>>([
+    final results = await Future.wait<dynamic>([
       _safeGetList(client, headers, '/work-sessions'),
       _safeGetList(client, headers, '/technician-reports'),
       _safeGetList(client, headers, '/work-orders'),
-      _safeGetList(client, headers, '/team-members'),
+      _getReferenceData(client, headers),
     ]);
-    final rawSessions = results[0];
-    final rawReports = results[1];
-    final rawOrders = results[2];
-    final rawTeamMembers = results[3];
+    final rawSessions = results[0] as List<Map<String, dynamic>>;
+    final rawReports = results[1] as List<Map<String, dynamic>>;
+    final rawOrders = results[2] as List<Map<String, dynamic>>;
+    final rawTeamMembers =
+        (results[3]
+                as ({
+                  List<Map<String, dynamic>> projects,
+                  List<Map<String, dynamic>> vessels,
+                  List<Map<String, dynamic>> assets,
+                  List<Map<String, dynamic>> teamMembers,
+                }))
+            .teamMembers;
 
     final resolvedTeamMemberId = _resolveTeamMemberFromList(
       rawTeamMembers,
@@ -2489,7 +2588,7 @@ class TechnicianService {
       );
     }
 
-    items.sort((a, b) => b.checkInAt.compareTo(a.checkInAt));
+    items.sort((a, b) => _compareIsoTimestamps(b.checkInAt, a.checkInAt));
     return TechnicianHistoryResponse(isAdmin: isAdmin, items: items);
   }
 
@@ -2512,47 +2611,43 @@ class TechnicianService {
       return res;
     }
 
-    final client = createApiClient();
-    try {
-      final headers = await _authHeaders();
-      final res = await client
-          .post(
-            Uri.parse('${AuthService.baseUrl}/technician/break'),
-            headers: headers,
-            body: jsonEncode({
-              'sessionId': sessionId,
-              'latitude': latitude,
-              'longitude': longitude,
-              'accuracy': accuracy,
-              'photoStorageKey': photoStorageKey,
-            }),
-          )
-          .timeout(const Duration(seconds: 20));
-      if (res.statusCode == 404) {
-        return await _closeSessionViaNestApi(
-          client: client,
+    final client = _client;
+    final headers = await _authHeaders();
+    final res = await client
+        .post(
+          Uri.parse('${AuthService.baseUrl}/technician/break'),
           headers: headers,
-          sessionId: sessionId,
-          jobStatus: 'on_break',
-          latitude: latitude,
-          longitude: longitude,
-          accuracy: accuracy,
-          photoStorageKey: photoStorageKey,
-          recordAttendance: true,
-        );
-      }
-      final body = _decodeJson(res);
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        AttendanceService.attendanceUpdatedNotifier.value++;
-        return body;
-      }
-      throw TechnicianApiException(
-        statusCode: res.statusCode,
-        message: body['message']?.toString() ?? 'Failed to start break.',
+          body: jsonEncode({
+            'sessionId': sessionId,
+            'latitude': latitude,
+            'longitude': longitude,
+            'accuracy': accuracy,
+            'photoStorageKey': photoStorageKey,
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (res.statusCode == 404) {
+      return await _closeSessionViaNestApi(
+        client: client,
+        headers: headers,
+        sessionId: sessionId,
+        jobStatus: 'on_break',
+        latitude: latitude,
+        longitude: longitude,
+        accuracy: accuracy,
+        photoStorageKey: photoStorageKey,
+        recordAttendance: true,
       );
-    } finally {
-      client.close();
     }
+    final body = _decodeJson(res);
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      AttendanceService.attendanceUpdatedNotifier.value++;
+      return body;
+    }
+    throw TechnicianApiException(
+      statusCode: res.statusCode,
+      message: body['message']?.toString() ?? 'Failed to start break.',
+    );
   }
 
   static Future<Map<String, dynamic>> endFromBreak({
@@ -2566,38 +2661,34 @@ class TechnicianService {
       );
     }
 
-    final client = createApiClient();
-    try {
-      final headers = await _authHeaders();
-      final res = await client
-          .post(
-            Uri.parse('${AuthService.baseUrl}/technician/end-from-break'),
-            headers: headers,
-            body: jsonEncode({
-              'sessionId': sessionId,
-              'jobStatus': jobStatus,
-            }),
-          )
-          .timeout(const Duration(seconds: 20));
-      if (res.statusCode == 404) {
-        return await _closeSessionViaNestApi(
-          client: client,
+    final client = _client;
+    final headers = await _authHeaders();
+    final res = await client
+        .post(
+          Uri.parse('${AuthService.baseUrl}/technician/end-from-break'),
           headers: headers,
-          sessionId: sessionId,
-          jobStatus: jobStatus,
-          recordAttendance: false,
-        );
-      }
-      final body = _decodeJson(res);
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        return body;
-      }
-      throw TechnicianApiException(
-        statusCode: res.statusCode,
-        message: body['message']?.toString() ?? 'Failed to end shift.',
+          body: jsonEncode({
+            'sessionId': sessionId,
+            'jobStatus': jobStatus,
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (res.statusCode == 404) {
+      return await _closeSessionViaNestApi(
+        client: client,
+        headers: headers,
+        sessionId: sessionId,
+        jobStatus: jobStatus,
+        recordAttendance: false,
       );
-    } finally {
-      client.close();
     }
+    final body = _decodeJson(res);
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      return body;
+    }
+    throw TechnicianApiException(
+      statusCode: res.statusCode,
+      message: body['message']?.toString() ?? 'Failed to end shift.',
+    );
   }
 }

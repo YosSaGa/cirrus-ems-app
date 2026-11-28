@@ -11,12 +11,16 @@ import '../models/payroll_calculator.dart';
 import '../services/auth_service.dart';
 import '../services/file_download_service.dart';
 import '../services/leave_pdf_builder.dart';
+import '../services/leave_service.dart';
 import '../services/work_trial_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ambient_panel.dart';
 import '../widgets/status_banner.dart';
+import '../widgets/status_chip.dart';
 import '../widgets/empty_note.dart';
 import '../widgets/fade_slide_entry.dart';
+import '../widgets/success_feedback_overlay.dart';
+import 'leave_approval_screen.dart';
 import 'leave_drafts_screen.dart';
 
 class LeaveTrialTab extends StatefulWidget {
@@ -35,10 +39,14 @@ class _LeaveTrialTabState extends State<LeaveTrialTab>
   late DateTime _end;
   bool _singleDay = true;
   bool _busy = true;
+  bool _submittingHr = false;
   bool _loadFailed = false;
   bool _exporting = false;
+  bool _canApproveLeave = false;
+  int _pendingApprovalsCount = 0;
   String? _error;
   List<LeaveDraft> _drafts = [];
+  List<LeaveRequestRecord> _submittedLeaves = [];
   @override
   bool get wantKeepAlive => true;
   @override
@@ -63,9 +71,33 @@ class _LeaveTrialTabState extends State<LeaveTrialTab>
     });
     try {
       final drafts = await widget.store.loadLeaves();
+      final canApprove = await AuthService.canApproveLeave();
+      List<LeaveRequestRecord> submitted = const [];
+      var pendingCount = 0;
+      try {
+        if (canApprove) {
+          final all = await LeaveService.getLeaveRequests(onlyMine: false);
+          pendingCount = all.where((e) => e.isPending).length;
+          final user = await AuthService.getSavedUser();
+          final myId = user?['id']?.toString().trim();
+          final myEmpId = user?['employeeId']?.toString().trim();
+          final ids = <String>{
+            if (myId != null && myId.isNotEmpty) myId,
+            if (myEmpId != null && myEmpId.isNotEmpty) myEmpId,
+          };
+          submitted = ids.isEmpty
+              ? all
+              : all.where((r) => ids.contains(r.employeeId)).toList();
+        } else {
+          submitted = await LeaveService.getLeaveRequests(onlyMine: true);
+        }
+      } catch (_) {}
       if (mounted) {
         setState(() {
           _drafts = drafts;
+          _canApproveLeave = canApprove;
+          _pendingApprovalsCount = pendingCount;
+          _submittedLeaves = submitted;
           _loadFailed = false;
         });
       }
@@ -78,6 +110,143 @@ class _LeaveTrialTabState extends State<LeaveTrialTab>
       }
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  bool _hasOverlappingSubmittedLeave() {
+    final s = DateTime(_start.year, _start.month, _start.day);
+    final e = DateTime(_end.year, _end.month, _end.day);
+    for (final item in _submittedLeaves) {
+      if (item.status == 'rejected' || item.status == 'cancelled') continue;
+      final is_ = DateTime(item.startDate.year, item.startDate.month, item.startDate.day);
+      final ie_ = DateTime(item.endDate.year, item.endDate.month, item.endDate.day);
+      if (!e.isBefore(is_) && !s.isAfter(ie_)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _includesWeekend() {
+    var cursor = DateTime(_start.year, _start.month, _start.day);
+    final end = DateTime(_end.year, _end.month, _end.day);
+    while (!cursor.isAfter(end)) {
+      if (cursor.weekday == DateTime.saturday ||
+          cursor.weekday == DateTime.sunday) {
+        return true;
+      }
+      cursor = cursor.add(const Duration(days: 1));
+    }
+    return false;
+  }
+
+  List<String> _computeLeaveWarnings() {
+    final warnings = <String>[];
+    final today = DateTime(
+      bangkokNow().year,
+      bangkokNow().month,
+      bangkokNow().day,
+    );
+    if (_start.isBefore(today)) {
+      warnings.add(
+        AppStrings.t(
+          'Selected start date is in the past.',
+          'วันที่เริ่มลาเป็นวันที่ผ่านมาแล้ว',
+          'Tarikh mula cuti telah berlalu.',
+        ),
+      );
+    }
+    if (_hasOverlappingSubmittedLeave()) {
+      warnings.add(
+        AppStrings.t(
+          'Overlaps with an existing pending/approved leave request.',
+          'ช่วงวันที่ซ้อนทับกับคำขอลาที่รออนุมัติหรืออนุมัติแล้ว',
+          'Bertindih dengan permohonan cuti sedia ada.',
+        ),
+      );
+    }
+    if (_includesWeekend()) {
+      warnings.add(
+        AppStrings.t(
+          'Selected range includes weekend days (Sat/Sun).',
+          'ช่วงวันที่เลือกคร่อมวันเสาร์-อาทิตย์',
+          'Julat tarikh termasuk hari minggu (Sabtu/Ahad).',
+        ),
+      );
+    }
+    return warnings;
+  }
+
+  Future<void> _submitToHr() async {
+    if (_busy || _submittingHr || _loadFailed || !_form.currentState!.validate()) {
+      return;
+    }
+    if (_hasOverlappingSubmittedLeave()) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(
+            AppStrings.t(
+              'Overlapping Leave Date',
+              'วันลาซ้อนทับกับรายการเดิม',
+              'Tarikh Cuti Bertindih',
+            ),
+          ),
+          content: Text(
+            AppStrings.t(
+              'You already have a pending or approved leave covering these dates. Submit anyway?',
+              'คุณมีใบลาที่รออนุมัติหรืออนุมัติแล้วในช่วงวันนี้ ต้องการส่งซ้ำหรือไม่?',
+              'Anda sudah mempunyai cuti pada tarikh ini. Hantar juga?',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(AppStrings.t('Cancel', 'ยกเลิก', 'Batal')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(AppStrings.t('Submit Anyway', 'ยืนยันส่ง', 'Hantar Juga')),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true || !mounted) return;
+    }
+    setState(() {
+      _submittingHr = true;
+      _error = null;
+    });
+    try {
+      await LeaveService.submitLeaveRequest(
+        type: _type,
+        start: _start,
+        end: _end,
+        reason: _reason.text,
+      );
+      final submitted = await LeaveService.getLeaveRequests(onlyMine: true);
+      if (!mounted) return;
+      setState(() => _submittedLeaves = submitted);
+      _reason.clear();
+      await SuccessFeedbackOverlay.show(
+        context,
+        title: AppStrings.t(
+          'Leave Request Sent',
+          'ส่งคำขอลาแล้ว',
+          'Permohonan Cuti Dihantar',
+        ),
+        subtitle: AppStrings.t(
+          'HR has received your request',
+          'ส่งคำขอให้ HR อนุมัติเรียบร้อย',
+          'HR telah menerima permohonan anda',
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _submittingHr = false);
     }
   }
 
@@ -311,6 +480,126 @@ class _LeaveTrialTabState extends State<LeaveTrialTab>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (_canApproveLeave) ...[
+                Material(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(AppRadius.surface),
+                  child: InkWell(
+                    key: const Key('leave-tab-approval-shortcut'),
+                    borderRadius: BorderRadius.circular(AppRadius.surface),
+                    onTap: () async {
+                      HapticFeedback.selectionClick();
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const LeaveApprovalScreen(),
+                        ),
+                      );
+                      if (mounted) _load();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(AppRadius.surface),
+                        border: Border.all(
+                          color: _pendingApprovalsCount > 0
+                              ? AppColors.secondary.withValues(alpha: 0.65)
+                              : AppColors.cardBorder,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: AppColors.secondary.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Icon(
+                              Icons.fact_check_outlined,
+                              color: AppColors.secondary,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  AppStrings.t(
+                                    'Leave Approvals',
+                                    'อนุมัติใบลาพนักงาน',
+                                    'Kelulusan Cuti',
+                                  ),
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.neutral,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _pendingApprovalsCount > 0
+                                      ? AppStrings.t(
+                                          '$_pendingApprovalsCount pending request(s) waiting',
+                                          'มีคำขอรออนุมัติ $_pendingApprovalsCount รายการ',
+                                          '$_pendingApprovalsCount permohonan menunggu',
+                                        )
+                                      : AppStrings.t(
+                                          'Review employee leave requests',
+                                          'ตรวจสอบและอนุมัติคำขอลาพนักงาน',
+                                          'Semak permohonan cuti pekerja',
+                                        ),
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: _pendingApprovalsCount > 0
+                                        ? AppColors.secondary
+                                        : AppColors.textSecondary,
+                                    fontWeight: _pendingApprovalsCount > 0
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (_pendingApprovalsCount > 0) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 9,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.neutral,
+                                borderRadius:
+                                    BorderRadius.circular(AppRadius.pill),
+                              ),
+                              child: Text(
+                                '$_pendingApprovalsCount',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.onNeutral,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            color: AppColors.textSecondary,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+              ],
               FadeSlideEntry(
                 yOffset: 12,
                 child: Column(
@@ -507,27 +796,52 @@ class _LeaveTrialTabState extends State<LeaveTrialTab>
                                     ],
                                   ),
                                 ),
-                                if (_start.isBefore(
-                                  DateTime(
-                                    bangkokNow().year,
-                                    bangkokNow().month,
-                                    bangkokNow().day,
-                                  ),
-                                )) ...[
-                                  const SizedBox(height: 8),
-                                  StatusBanner(
-                                    variant: StatusVariant.warning,
-                                    message: AppStrings.t(
-                                      'Selected start date is in the past. Please double-check the date.',
-                                      'วันที่เริ่มลาเป็นวันที่ผ่านมาแล้ว กรุณาตรวจสอบวันที่อีกครั้ง',
-                                      'Tarikh mula cuti telah berlalu. Sila semak semula tarikh.',
+                                ..._computeLeaveWarnings().map(
+                                  (msg) => Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: StatusBanner(
+                                      variant: StatusVariant.warning,
+                                      message: msg,
                                     ),
                                   ),
-                                ],
+                                ),
                                 const SizedBox(height: 16),
                                 FilledButton.icon(
+                                  key: const Key('submit-leave-hr'),
+                                  onPressed: (_busy || _submittingHr || _loadFailed)
+                                      ? null
+                                      : _submitToHr,
+                                  icon: _submittingHr
+                                      ? SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: AppColors.onNeutral,
+                                          ),
+                                        )
+                                      : const Icon(Icons.send_rounded),
+                                  label: Text(
+                                    AppStrings.t(
+                                      'Submit to HR',
+                                      'ส่งคำขอลาให้ HR',
+                                      'Hantar ke HR',
+                                    ),
+                                  ),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: AppColors.neutral,
+                                    foregroundColor: AppColors.onNeutral,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(
+                                        AppRadius.pill,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                OutlinedButton.icon(
                                   key: const Key('save-leave'),
-                                  onPressed: _busy || _loadFailed
+                                  onPressed: (_busy || _submittingHr || _loadFailed)
                                       ? null
                                       : _save,
                                   icon: _busy
@@ -536,7 +850,7 @@ class _LeaveTrialTabState extends State<LeaveTrialTab>
                                           height: 18,
                                           child: CircularProgressIndicator(
                                             strokeWidth: 2,
-                                            color: AppColors.onNeutral,
+                                            color: AppColors.neutral,
                                           ),
                                         )
                                       : const Icon(Icons.save_outlined),
@@ -546,9 +860,9 @@ class _LeaveTrialTabState extends State<LeaveTrialTab>
                                       'บันทึกแบบร่างลงเครื่อง',
                                     ),
                                   ),
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: AppColors.neutral,
-                                    foregroundColor: AppColors.onNeutral,
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.neutral,
+                                    side: BorderSide(color: AppColors.cardBorder),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(
                                         AppRadius.pill,
@@ -581,6 +895,93 @@ class _LeaveTrialTabState extends State<LeaveTrialTab>
                     ),
                   ),
                 ),
+              if (_submittedLeaves.isNotEmpty) ...[
+                const SizedBox(height: 24),
+                Text(
+                  AppStrings.t(
+                    'Submitted leave requests (HR)',
+                    'คำขอลาที่ส่งให้ HR แล้ว',
+                    'Permohonan cuti dihantar (HR)',
+                  ),
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                ..._submittedLeaves.take(5).map((rec) {
+                  final variant = rec.isApproved
+                      ? ChipVariant.success
+                      : (rec.isRejected || rec.isCancelled)
+                      ? ChipVariant.error
+                      : ChipVariant.warning;
+                  final statusText = rec.isApproved
+                      ? AppStrings.t('APPROVED', 'อนุมัติแล้ว', 'DILULUSKAN')
+                      : rec.isRejected
+                      ? AppStrings.t('REJECTED', 'ไม่อนุมัติ', 'DITOLAK')
+                      : rec.isCancelled
+                      ? AppStrings.t('CANCELLED', 'ยกเลิกแล้ว', 'DIBATALKAN')
+                      : AppStrings.t('PENDING', 'รออนุมัติ', 'MENUNGGU');
+                  final range = rec.calendarDays == 1
+                      ? calendarDate(rec.startDate)
+                      : '${calendarDate(rec.startDate)} → ${calendarDate(rec.endDate)}';
+                  return Container(
+                    key: Key('submitted-leave-${rec.id}'),
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(AppRadius.surface),
+                      border: Border.all(color: AppColors.cardBorder),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                AppStrings.leaveTypeLabel(rec.leaveType.label),
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.neutral,
+                                ),
+                              ),
+                            ),
+                            StatusChip(label: statusText, variant: variant),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '$range (${rec.calendarDays} ${AppStrings.t("day(s)", "วัน", "hari")})',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          rec.reason,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: AppColors.neutral,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: _exporting
+                                ? null
+                                : () => _viewPdf(rec.toLeaveDraft()),
+                            icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                            label: Text(AppStrings.t('PDF', 'PDF')),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
               const SizedBox(height: 24),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,

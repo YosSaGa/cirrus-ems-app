@@ -49,8 +49,9 @@ lib/
     earnings_trial_tab.dart       # Pay estimate (PayWalletCard 3D + เรทต่อชม./ฐานเงินเดือน + การ์ดรายการหัก)
     pay_calculator_screen.dart    # Pay Simulator คำนวณค่าแรงเองฝั่งเครื่อง
     payroll_management_screen.dart # จัดการเรทต่อชม. & รายการหัก (ค่าที่พัก/ประกันสังคม/ประกันงาน) เฉพาะ HR/Admin/Accountant
-    leave_trial_tab.dart          # Local leave draft tab (แสดง 2 ใบล่าสุด + View all)
+    leave_trial_tab.dart          # หน้าใบลา (ส่งคำขอลาเข้า HR DB + แบบร่างในเครื่อง + PDF)
     leave_drafts_screen.dart      # หน้าแยกแบบร่างใบลาทั้งหมด (กรอง All/Active/Cancelled)
+    leave_approval_screen.dart    # หน้าอนุมัติ/ไม่อนุมัติใบลา (เฉพาะ HR/Admin/Manager/Owner)
   widgets/
     app_bottom_nav.dart           # Bottom navigation แบบ floating bubble + Haptic
     ambient_panel.dart            # Decorative navy gradient painter (RepaintBoundary, centered mode)
@@ -63,9 +64,11 @@ lib/
     app_theme.dart                # AppColors, AppRadius, AppTheme.forMode(mode, language)
   services/
     auth_service.dart             # login, session, SSO, logout, baseUrl, RBAC (canManagePayroll, isTechnician)
+    secure_token_store.dart       # เข้ารหัส JWT & Switch-Account tokens ด้วย flutter_secure_storage (Keystore/Keychain)
     technician_service.dart       # REST client โหมดช่าง (my-jobs / check-in / check-out ลง hr.work_sessions)
     work_timer_notification_service.dart # แจ้งเตือน Android Chronometer นับเวลาทำงานสดบน Status Bar (MethodChannel)
     payroll_service.dart          # REST client จัดการเรทต่อชม. และรายการหัก (hr.compensation / hr.employee_payroll_items)
+    leave_service.dart            # REST client คำขอลาและอนุมัติใบลา (GET/POST /leave, approve, reject)
     attendance_service.dart       # attendance events, upload, history, retry
     theme_service.dart            # จัดการธีม 3 แบบ + SharedPreferences
     language_service.dart         # จัดการภาษา EN/TH + SharedPreferences
@@ -166,6 +169,7 @@ AppRadius.input   = 16.0   // input fields
 - การอัปเดตเอกสาร `.md` ทุกครั้งต้องตรงกับโค้ดจริงครบทุกไฟล์ที่เกี่ยวข้อง (`TASK_STATUS.md`, `README.md`, `DESIGN.md`, `PROJECT_STRUCTURE.md`, `AGENTS.md`) และในบันทึกอัปเดตให้ระบุทั้ง **สิ่งที่ทำ/สิ่งที่เปลี่ยน** คู่กับ **เจอปัญหาอะไร → แก้ยังไง** ความยาวระดับปานกลาง กระชับ ตรงประเด็น ไม่เวิ้นเว่อ
 - Analyzer ยอมรับได้เฉพาะ `info` deprecation จาก SDK — ห้ามมี `warning` หรือ `error`
 - Tests ต้องผ่านก่อน mark งานว่าเสร็จ
+- **Build Release APK ทุกครั้งที่แก้โค้ด:** หลังแก้โค้ดและตรวจ analyze/test ผ่านแล้ว ให้รัน `F:\bin\flutter.bat build apk --release --split-per-abi --obfuscate --split-debug-info=build/app/outputs/symbols -t lib/main.dart` และติดตั้ง `build\app\outputs\flutter-apk\app-x86_64-release.apk` ลง `emulator-5554` (ถ้า emulator เชื่อมต่ออยู่) เสมอ
 
 ## ลำดับการทำ UI Task ใหม่
 

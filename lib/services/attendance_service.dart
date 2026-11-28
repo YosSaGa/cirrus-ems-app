@@ -431,16 +431,34 @@ class AttendanceService {
   // see `AttendanceScreen`'s own kIsWeb branch -- so this is a no-op
   // there, never an attempted platform-channel call).
   static Future<void> _clearPendingRequest(String userId) async {
-    final existing = await _readPendingRecord(_pendingRequestKeyFor(userId));
+    final key = _pendingRequestKeyFor(userId);
+    final existing = await _readPendingRecord(key);
+    final prefs = await SharedPreferences.getInstance();
     if (existing.state == PendingAttendanceRequestState.valid) {
       final photoFilePath = existing.record!['photoFilePath'];
       if (photoFilePath is String && photoFilePath.isNotEmpty) {
         await LocalPhotoStore.delete(photoFilePath);
       }
+    } else if (existing.state == PendingAttendanceRequestState.malformed) {
+      final raw = prefs.getString(key);
+      if (raw != null && raw.isNotEmpty) {
+        String? extractedPath;
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is Map && decoded['photoFilePath'] is String) {
+            extractedPath = decoded['photoFilePath'] as String;
+          }
+        } catch (_) {
+          final match = RegExp(r'"photoFilePath"\s*:\s*"([^"]+)"').firstMatch(raw);
+          extractedPath = match?.group(1);
+        }
+        if (extractedPath != null && extractedPath.isNotEmpty) {
+          await LocalPhotoStore.delete(extractedPath);
+        }
+      }
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_pendingRequestKeyFor(userId));
+    await prefs.remove(key);
   }
 
   static Future<Map<String, dynamic>?> _migrateLegacyPendingRequestIfApplicable(

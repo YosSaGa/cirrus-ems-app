@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_client_factory.dart';
+import 'secure_token_store.dart';
 import 'technician_service.dart';
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -247,8 +248,7 @@ class AuthService {
     Map<String, dynamic>? body,
     bool authenticated = false,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString(_tokenKey);
+    final token = authenticated ? await getToken() : null;
 
     final headers = <String, String>{
       'Accept': 'application/json',
@@ -404,7 +404,7 @@ class AuthService {
       throw Exception('Backend did not return an access token.');
     }
 
-    await prefs.setString(_tokenKey, token);
+    await SecureTokenStore.writeToken(_tokenKey, token);
 
     if (result['user'] != null) {
       await prefs.setString(_userKey, jsonEncode(result['user']));
@@ -422,7 +422,7 @@ class AuthService {
       await _recordRecentAccount(
         prefs,
         Map<String, dynamic>.from(result['user'] as Map),
-        token: prefs.getString(_tokenKey),
+        token: token,
         roles: (result['roles'] is List)
             ? (result['roles'] as List).map((e) => e.toString()).toList()
             : const [],
@@ -465,7 +465,7 @@ class AuthService {
       await _recordRecentAccount(
         prefs,
         Map<String, dynamic>.from(result['user'] as Map),
-        token: prefs.getString(_tokenKey),
+        token: await getToken(),
         roles: (result['roles'] is List)
             ? (result['roles'] as List).map((e) => e.toString()).toList()
             : const [],
@@ -489,8 +489,7 @@ class AuthService {
   }
 
   static Future<bool> restoreSession() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString(_tokenKey);
+    final token = await getToken();
 
     try {
       if (token != null && token.isNotEmpty) {
@@ -587,18 +586,14 @@ class AuthService {
   static Future<void> _clearLocalSession() async {
     final prefs = await SharedPreferences.getInstance();
 
-    await prefs.remove(_tokenKey);
+    await SecureTokenStore.deleteToken(_tokenKey);
     await prefs.remove(_userKey);
     await prefs.remove(_rolesKey);
     await prefs.remove(_permissionsKey);
     TechnicianService.clearCachedDashboard();
-
   }
 
-  static Future<String?> getToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_tokenKey);
-  }
+  static Future<String?> getToken() => SecureTokenStore.readToken(_tokenKey);
 
   static Future<Map<String, dynamic>?> getSavedUser() async {
     final prefs = await SharedPreferences.getInstance();
@@ -676,6 +671,40 @@ class AuthService {
     return hasPayrollManageAccess(roles, perms);
   }
 
+  static const Set<String> _leaveApproverRoles = {
+    'admin',
+    'hr officer',
+    'hr',
+    'owner',
+    'manager',
+  };
+
+  /// Synchronous RBAC check for approving/rejecting employee leave requests.
+  static bool hasLeaveApproveAccess(
+    List<String> roles,
+    List<String> permissions,
+  ) {
+    for (final role in roles) {
+      if (_leaveApproverRoles.contains(role.toLowerCase().trim())) {
+        return true;
+      }
+    }
+    for (final perm in permissions) {
+      final p = perm.toLowerCase().trim();
+      if (p == 'leave.approve' || p == 'leave.manage' || p == 'leave.update') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Returns whether the currently cached session can approve/reject leave requests.
+  static Future<bool> canApproveLeave() async {
+    final roles = await getSavedRoles();
+    final perms = await getSavedPermissions();
+    return hasLeaveApproveAccess(roles, perms);
+  }
+
   /// Synchronous role check for Technician field-job attendance mode
   /// (`Technician` and `Admin`).
   static bool hasTechnicianRole(List<String> roles) {
@@ -715,13 +744,21 @@ class AuthService {
             .trim();
     if (username.isEmpty) return;
     final name = (user['name'] ?? username).toString().trim();
+    final tokenKey = SecureTokenStore.recentAccountTokenKey(username);
+    var storedInSecure = false;
+    if (token != null && token.isNotEmpty) {
+      storedInSecure = await SecureTokenStore.writeToken(tokenKey, token);
+    } else {
+      await SecureTokenStore.deleteToken(tokenKey);
+    }
+
     final entry = RecentAccount(
       username: username,
       name: name.isEmpty ? username : name,
       lastUsedAt: DateTime.now(),
       employeeCode: user['employeeCode']?.toString(),
       email: user['email']?.toString(),
-      savedToken: token,
+      savedToken: storedInSecure ? null : token,
       savedUser: user,
       savedRoles: roles,
       savedPermissions: permissions,
@@ -735,26 +772,45 @@ class AuthService {
     ].take(30).toList(growable: false);
     await prefs.setString(
       _recentAccountsKey,
-      jsonEncode(updated.map((a) => a.toJson()).toList()),
+      jsonEncode(
+        updated
+            .map(
+              (a) => (storedInSecure ? a.copyWith(clearToken: true) : a)
+                  .toJson(),
+            )
+            .toList(),
+      ),
     );
   }
 
   /// Clears saved instant-switch token for [username] (e.g. on explicit logout
   /// or 5-day expiry) while keeping display metadata in the recent list.
   static Future<void> clearRecentAccountToken(String username) async {
-    final prefs = await SharedPreferences.getInstance();
-    final existing = await getRecentAccounts();
-    final updated = existing
-        .map(
-          (a) => a.username.toLowerCase() == username.toLowerCase()
-              ? a.copyWith(clearToken: true)
-              : a,
-        )
-        .toList(growable: false);
-    await prefs.setString(
-      _recentAccountsKey,
-      jsonEncode(updated.map((a) => a.toJson()).toList()),
+    await SecureTokenStore.deleteToken(
+      SecureTokenStore.recentAccountTokenKey(username),
     );
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_recentAccountsKey);
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        final updated = decoded
+            .whereType<Map>()
+            .map((m) => RecentAccount.fromJson(Map<String, dynamic>.from(m)))
+            .where((a) => a.username.isNotEmpty)
+            .map(
+              (a) => a.username.toLowerCase() == username.toLowerCase()
+                  ? a.copyWith(clearToken: true)
+                  : a,
+            )
+            .toList(growable: false);
+        await prefs.setString(
+          _recentAccountsKey,
+          jsonEncode(updated.map((a) => a.toJson()).toList()),
+        );
+      }
+    } catch (_) {}
   }
 
   /// Attempts an instant switch to [account] when used within the last 5 days
@@ -783,13 +839,13 @@ class AuthService {
       throw Exception(_connectionErrorMessage);
     }
     final prefs = await SharedPreferences.getInstance();
-    final prevToken = prefs.getString(_tokenKey);
+    final prevToken = await getToken();
     final prevUser = prefs.getString(_userKey);
     final prevRoles = prefs.getString(_rolesKey);
     final prevPerms = prefs.getString(_permissionsKey);
 
     try {
-      await prefs.setString(_tokenKey, account.savedToken!);
+      await SecureTokenStore.writeToken(_tokenKey, account.savedToken!);
       if (account.savedUser != null) {
         await prefs.setString(_userKey, jsonEncode(account.savedUser));
       } else {
@@ -813,15 +869,17 @@ class AuthService {
       ].take(30).toList(growable: false);
       await prefs.setString(
         _recentAccountsKey,
-        jsonEncode(updated.map((a) => a.toJson()).toList()),
+        jsonEncode(
+          updated.map((a) => a.copyWith(clearToken: true).toJson()).toList(),
+        ),
       );
       TechnicianService.clearCachedDashboard();
       return true;
     } catch (_) {
       if (prevToken != null) {
-        await prefs.setString(_tokenKey, prevToken);
+        await SecureTokenStore.writeToken(_tokenKey, prevToken);
       } else {
-        await prefs.remove(_tokenKey);
+        await SecureTokenStore.deleteToken(_tokenKey);
       }
       if (prevUser != null) {
         await prefs.setString(_userKey, prevUser);
@@ -857,20 +915,51 @@ class AuthService {
             .map((m) => RecentAccount.fromJson(Map<String, dynamic>.from(m)))
             .where((a) => a.username.isNotEmpty)
             .toList(growable: false);
-        var prunedAny = false;
-        final cleaned = parsed.map((a) {
-          if (a.savedToken != null &&
-              a.savedToken!.isNotEmpty &&
-              !a.canInstantSwitch) {
-            prunedAny = true;
-            return a.copyWith(clearToken: true);
+        var rewritePrefs = false;
+        final cleaned = <RecentAccount>[];
+        for (final a in parsed) {
+          final tokenKey = SecureTokenStore.recentAccountTokenKey(a.username);
+          var token = await SecureTokenStore.readToken(tokenKey);
+          if ((token == null || token.isEmpty) &&
+              a.savedToken != null &&
+              a.savedToken!.isNotEmpty) {
+            final migrated = await SecureTokenStore.writeToken(
+              tokenKey,
+              a.savedToken!,
+            );
+            token = a.savedToken;
+            if (migrated) rewritePrefs = true;
+          } else if (a.savedToken != null && a.savedToken!.isNotEmpty) {
+            rewritePrefs = true;
           }
-          return a;
-        }).toList(growable: false);
-        if (prunedAny) {
+
+          final hydrated = RecentAccount(
+            username: a.username,
+            name: a.name,
+            lastUsedAt: a.lastUsedAt,
+            employeeCode: a.employeeCode,
+            email: a.email,
+            savedToken: token,
+            savedUser: a.savedUser,
+            savedRoles: a.savedRoles,
+            savedPermissions: a.savedPermissions,
+          );
+          if (hydrated.savedToken != null &&
+              hydrated.savedToken!.isNotEmpty &&
+              !hydrated.canInstantSwitch) {
+            await SecureTokenStore.deleteToken(tokenKey);
+            rewritePrefs = true;
+            cleaned.add(hydrated.copyWith(clearToken: true));
+          } else {
+            cleaned.add(hydrated);
+          }
+        }
+        if (rewritePrefs) {
           await prefs.setString(
             _recentAccountsKey,
-            jsonEncode(cleaned.map((a) => a.toJson()).toList()),
+            jsonEncode(
+              cleaned.map((a) => a.copyWith(clearToken: true).toJson()).toList(),
+            ),
           );
         }
         return cleaned;
@@ -881,6 +970,9 @@ class AuthService {
 
   /// Removes a saved display entry from the Switch Account list.
   static Future<void> removeRecentAccount(String username) async {
+    await SecureTokenStore.deleteToken(
+      SecureTokenStore.recentAccountTokenKey(username),
+    );
     final prefs = await SharedPreferences.getInstance();
     final existing = await getRecentAccounts();
     final filtered = existing

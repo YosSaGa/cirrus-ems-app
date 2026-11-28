@@ -1,6 +1,6 @@
 # สถานะงาน Cirrus EMS
 
-อัปเดตล่าสุด: 28 พฤศจิกายน 2026 (แก้ความปลอดภัย Local Bridge และป้องกันข้อมูลค้างสูญหาย)
+อัปเดตล่าสุด: 28 พฤศจิกายน 2026 (เข้ารหัส Token ด้วย flutter_secure_storage, ปิด Cleartext/Backup, Optimize & Splash Sonar)
 
 ภาพรวมและวิธีรันดู [README.md](README.md) — ไฟล์นี้เป็นแหล่งหลักสำหรับสถานะงาน แยกสิ่งที่มีในโค้ดออกจากสิ่งที่ตรวจบนระบบจริงแล้ว กติกาการทำงานและคำสั่งสำคัญดู [AGENTS.md](AGENTS.md) แนวทาง UI ดู [DESIGN.md](DESIGN.md)
 
@@ -108,6 +108,91 @@
 | **Entry Animations (รอบ 2 — 20 พ.ย. 2026)** | ทุกหน้าได้รับ FadeSlideEntry / flutter_animate, login_screen ได้ stagger delay ผ่าน Interval curve, tests 87 ข้อผ่านทั้งหมด ✅ |
 
 ## ประวัติการเปลี่ยนแปลง
+
+### 28 พฤศจิกายน 2026 — เพิ่มระบบกัน Human Error, Shift Scan Reminders และ Motion Polish
+
+- **สิ่งที่เปลี่ยน (`lib/screens/leave_trial_tab.dart`, `lib/screens/attendance_screen.dart`, `lib/services/shift_reminder_service.dart`, `lib/screens/settings_screen.dart`, `lib/widgets/bouncy_tap.dart`, `lib/theme/app_theme.dart`, `lib/widgets/app_quick_drawer.dart`, `lib/main.dart`, `android/app/src/main/kotlin/com/cirrusgroup/ems/MainActivity.kt`, `android/app/src/main/kotlin/com/cirrusgroup/ems/ShiftReminderReceiver.kt`, `android/app/src/main/AndroidManifest.xml`):**
+  - **Leave Smart Guard (`LeaveTrialTab`):** แจ้งเตือนวันย้อนหลัง, วันคร่อมเสาร์-อาทิตย์ และวันลาซ้อนทับใบลาเดิม (Pending/Approved) พร้อม Dialog ยืนยันก่อนส่งซ้ำ
+  - **Early Check-Out Guard (`AttendanceScreen`):** เตือนยืนยันอีกครั้งหากช่างกด Check-Out หลังเพิ่ง Check-In ไปไม่ถึง 5 นาที
+  - **Local Shift Scan Reminders (`ShiftReminderService` + `AlarmManager`):** ตั้งเตือนรายวัน 4 ช่วง (`07:55`, `12:00`, `13:00`, `17:00`) ในเครื่อง เปิด/ปิดได้ใน `Settings > Shift Scan Reminders`
+  - **Motion & Tactile Polish (`BouncyTap`, `_SlideFadePageTransitionsBuilder`, `FadeSlideEntry`):** เพิ่มเอฟเฟกต์กดยุบ-เด้งสปริงบนเมนูลัด, Staggered Cascade ใน `AppQuickDrawer` และ Page Transition แบบเลื่อน-เฟด `Curves.easeOutCubic` ทั้งแอป (รองรับ Reduce Motion)
+
+### 28 พฤศจิกายน 2026 — เพิ่ม 6 ฟีเจอร์เสริม (Watermark, E-Payslip PDF, Biometric Lock, QR Scanner, GPS Map, Celebration Overlay)
+
+- **สิ่งที่เปลี่ยน (`lib/services/photo_watermark_service.dart`, `lib/services/payslip_pdf_builder.dart`, `lib/services/biometric_service.dart`, `lib/services/app_preferences_service.dart`, `lib/widgets/success_feedback_overlay.dart`, `lib/screens/qr_job_scanner_screen.dart`, `lib/screens/attendance_map_screen.dart`, `lib/screens/attendance_screen.dart`, `lib/screens/earnings_trial_tab.dart`, `lib/screens/settings_screen.dart`, `lib/screens/leave_trial_tab.dart`, `lib/screens/leave_approval_screen.dart`, `lib/widgets/app_quick_drawer.dart`, `lib/main.dart`):**
+  - **Photo Watermark (`PhotoWatermarkService`):** แปะแถบเวลา + พิกัด GPS + ประเภทการสแกนลงล่างภาพถ่ายหน้างานอัตโนมัติ (fallback คืน bytes เดิมหากถอดรหัสภาพไม่ได้)
+  - **Digital E-Payslip PDF (`PayslipPdfBuilder`):** ออกสลิปเงินเดือนอิเล็กทรอนิกส์ (Sarabun ไทย/อังกฤษ) จากแท็บ `Pay Estimate` พร้อมปุ่ม Download PDF & Share
+  - **Biometric Pay Lock (`BiometricService`, `local_auth`):** เปิด/ปิดล็อกหน้าค่าแรงและ E-Payslip ด้วยลายนิ้วมือ / Face ID ใน `Settings`
+  - **QR Job Scanner:** นำ `Scan Job QR` (`mobile_scanner`) และ `Site & GPS Map` (`flutter_map`/`latlong2`) ออกตามคำขอผู้ใช้ และขยายความกว้าง `AppQuickDrawer` เป็น 84% ของหน้าจอ (clamp `304–390px`) ไม่ให้เหลือช่องว่างขวาเยอะ
+  - **Success Celebration & Sound (`SuccessFeedbackOverlay`):** แสดงเอฟเฟกต์ยืนยันพร้อมสั่น/เสียงเบาๆ เมื่อส่งใบลา อนุมัติใบลา หรือบันทึกสลิป (เปิด/ปิดได้ใน `Settings`)
+  - **Low-End Device Optimization & 60/120fps:** ปรับ `MainActivity.kt` เป็น `FlutterFragmentActivity` พร้อมปลดล็อก `preferredDisplayModeId` สูงสุดของจอ (60/90/120Hz), เปิด `GestureBinding.instance.resamplingEnabled = true` + จำกัด `imageCache` 64 MB ใน `main.dart`, downscale ภาพ `targetWidth: 1280` ใน `PhotoWatermarkService`, `RepaintBoundary` + Reduce Motion ใน `SuccessFeedbackOverlay`
+- **ปัญหาที่พบ → วิธีแก้:** เพิ่ม `local_auth 3.0.2` (ถอด `mobile_scanner`, `flutter_map`, `latlong2` ออก) โดย `local_auth` v3 ใช้ named parameters `localizedReason`/`biometricOnly` โดยตรงแทน `AuthenticationOptions`
+
+### 28 พฤศจิกายน 2026 — เพิ่ม Quick Menu Drawer (`☰`) รวมฟีเจอร์นอก Bottom Nav ตาม Role
+
+- **สิ่งที่เปลี่ยน (`lib/widgets/app_quick_drawer.dart`, `lib/screens/main_shell.dart`, `lib/screens/attendance_screen.dart`, `lib/screens/login_screen.dart`, `PROJECT_STRUCTURE.md`):**
+  - สร้าง `AppQuickDrawer` แสดงโปรไฟล์ผู้ใช้ + Role badges บนหัว `AmbientPanel` และจัดหมวดฟีเจอร์นอก Bottom Nav 4 แท็บตามสิทธิ์:
+    - **Management** (`canApproveLeave || canManagePayroll`): `Leave Approvals`, `Payroll & Deductions`
+    - **Technician** (`isTechnician`): `Job & Report History`
+    - **Tools & Support** (ทุก role): `Pay Simulator`, `Device & Connection Check`, `Storage & Cache`, `Help & FAQ`, `Settings`
+  - ผูก `Scaffold(key: _scaffoldKey, drawer: const AppQuickDrawer())` ใน `MainShell` และเพิ่มปุ่ม `☰` (`Key('open-quick-drawer-button')`) มุมซ้ายบนของ `AttendanceScreen`
+  - ปรับช่องกรอก Username / Password ใน `LoginScreen` ให้ใช้ฟอนต์ `IBM Plex Sans Thai` (พิมพ์เล็ก-ใหญ่ปกติ แทน `Bebas Neue` ที่เป็นตัวพิมพ์ใหญ่ทั้งหมด) พร้อมปิด `autocorrect`/`enableSuggestions` ในช่องรหัสผ่าน
+- **ปัญหาที่พบ → วิธีแก้:** เดิมฟีเจอร์อย่าง `Leave Approvals`, `Payroll & Deductions`, `Job & Report History`, `Pay Simulator` และเครื่องมือระบบถูกซ่อนอยู่ลึกใน `Profile > Settings` ทำให้เข้าถึงหลายขั้นตอน และช่องกรอกหน้า Login ใช้ฟอนต์ธีม `Bebas Neue` ทำให้แยกตัวพิมพ์เล็ก-ใหญ่ไม่ออกตอนเปิดดูรหัสผ่าน → เพิ่ม `AppQuickDrawer` เปิดจากปุ่ม `☰` หน้าหลัก และกำหนด `fontFamily: 'IBM Plex Sans Thai'` เฉพาะช่องกรอก Username/Password
+- **ผลตรวจ:** `flutter analyze --no-fatal-infos lib/widgets/app_quick_drawer.dart lib/screens/main_shell.dart lib/screens/attendance_screen.dart` → **0 error / 0 warning**, `flutter test test/ui_refresh_test.dart test/technician_attendance_test.dart` → **ผ่านครบ 34/34 ข้อ**
+
+### 28 พฤศจิกายน 2026 — เชื่อมหน้าใบลาเข้า Backend จริง + เพิ่มหน้าอนุมัติใบลาสำหรับ HR/Admin
+
+- **สิ่งที่เปลี่ยน (`lib/services/leave_service.dart`, `lib/services/auth_service.dart`, `lib/screens/leave_approval_screen.dart`, `lib/screens/settings_screen.dart`, `lib/screens/leave_trial_tab.dart`, `test/leave_approval_test.dart`, `AGENTS.md`, `PROJECT_STRUCTURE.md`):**
+  - สร้าง `LeaveService` เชื่อม `GET /leave`, `POST /leave` (ตรง DTO: `type`, `days`, `createdBy`, `employeeId`, `startDate`, `endDate`, `reason`), `POST /leave/:id/approve`, `POST /leave/:id/reject` พร้อม `LeaveRequestRecord.toLeaveDraft()` สำหรับออก PDF ไทย/อังกฤษ
+  - เพิ่ม `AuthService.hasLeaveApproveAccess` / `canApproveLeave` (HR/Admin/Manager/Owner หรือ permission `leave.approve/manage/update`)
+  - สร้าง `LeaveApprovalScreen` (`Settings > Management > Leave Approvals` และทางลัด 1 แตะบนหน้า `Leave` พร้อมตัวเลขรออนุมัติ) กรอง Pending/Approved/Rejected/All, กดอนุมัติ/ไม่อนุมัติพร้อมกรอกเหตุผล และอัปเดต `LeaveTrialTab` ให้กด **"ส่งคำขอลาให้ HR"** + แสดงรายการที่ส่งแล้วพร้อมสถานะจริง
+- **ปัญหาที่พบ → วิธีแก้:** เดิมใบลาบันทึกได้แค่ในเครื่องและ `_reject` dialog dispose `TextEditingController` ก่อนอนิเมชันปิดจบ → แยก `_RejectReasonDialog` เป็น `StatefulWidget` และเชื่อมปุ่มส่งเข้า HR โดยคงระบบแบบร่างในเครื่องไว้ไม่ให้กระทบเทสต์เดิม
+- **ผลตรวจ:** `flutter analyze --no-fatal-infos` ทั้ง 5 ไฟล์ → **0 error / 0 warning**, `flutter test test/leave_approval_test.dart` → **3/3**, `test/work_trial_screen_test.dart` + `test/settings_screen_test.dart` + `test/auth_service_test.dart` → **34/34** (รวม **37/37**), Build Release APK ติดตั้งทั้ง `emulator-5554` และ `f7edc900` (`RMX3371`)
+
+### 28 พฤศจิกายน 2026 — แตะการ์ด 4 ช่องหน้า History แล้วเลื่อนลงรายการสแกนอัตโนมัติ
+
+- **สิ่งที่เปลี่ยน (`lib/screens/history_screen.dart`):**
+  - เพิ่ม `_scanHistorySectionKey` ผูกกับหัวข้อ `Monthly Scan History`, ปรับ `_toggleFilter` ให้เรียก `Scrollable.ensureVisible(..., duration: 360ms, curve: Curves.easeOutCubic)` เลื่อนลงไปที่รายการสแกนอัตโนมัติ, และเปิดให้แตะการ์ด `Work Days` ได้ตลอดเมื่อมีวันทำงาน
+- **ปัญหาที่พบ → วิธีแก้:** เดิมแตะการ์ด `Late` / `Early leave` / `Overtime` จะกรองรายการอยู่ด้านล่างแต่หน้าจอไม่เลื่อนตาม และ `Work Days` แตะได้เฉพาะตอนมี filter ค้าง → เพิ่ม `Scrollable.ensureVisible` หลังเปลี่ยน filter และเปิดแตะ `Work Days` ทุกครั้งที่มีข้อมูล
+- **ผลตรวจ:** `flutter analyze --no-fatal-infos lib/screens/history_screen.dart` → **0 error / 0 warning**, `flutter test test/ui_refresh_test.dart` → **ผ่านครบ 11/11 ข้อ**, Build Release APK ติดตั้งทั้ง `emulator-5554` และ `f7edc900` (`RMX3371`)
+
+### 28 พฤศจิกายน 2026 — เข้ารหัส JWT & Token สลับบัญชีด้วย `flutter_secure_storage` (Keystore / Keychain)
+
+- **สิ่งที่เปลี่ยน (`pubspec.yaml`, `lib/services/secure_token_store.dart`, `lib/services/auth_service.dart`, `AGENTS.md`, `PROJECT_STRUCTURE.md`):**
+  - เพิ่มแพ็กเกจ `flutter_secure_storage` (`11.2.0`) และสร้าง `SecureTokenStore` สำหรับเก็บ active JWT (`ems.authToken`) และ Switch-Account tokens (`ems.recentToken.<username>`) ใน Android Keystore / iOS Keychain
+  - Migrate token เดิมจาก `SharedPreferences` อัตโนมัติเมื่ออ่านครั้งแรก แล้วลบค่า plaintext ออก (รวมถึงตัด `savedToken` ออกจาก JSON `ems.recentAccounts`)
+- **ปัญหาที่พบ → วิธีแก้:** เดิม token ถูกเก็บแบบ plaintext ใน `SharedPreferences` และตอนรัน `flutter test` ไม่มี native channel ของ `FlutterSecureStorage` → เพิ่ม `_bypassNativeStorage` ตรวจ test binding ใน `SecureTokenStore` เพื่อ fallback ไป `SharedPreferences` เฉพาะในเทสต์ และแก้ `clearRecentAccountToken` ให้ล้าง `savedToken` ใน JSON ก่อนไม่ให้ `getRecentAccounts` re-migrate กลับ
+- **ผลตรวจ:** `flutter analyze --no-fatal-infos lib/services/secure_token_store.dart lib/services/auth_service.dart` → **No issues found!**, `flutter test test/auth_service_test.dart test/splash_screen_test.dart test/technician_attendance_test.dart test/settings_screen_test.dart` → **ผ่านครบ 58/58 ข้อ**, และ Build Release APK ติดตั้งบน `emulator-5554`
+- ตรวจ `README.md` แล้ว ภาพรวมการยืนยันตัวตนยังตรงกัน
+
+### 28 พฤศจิกายน 2026 — ปิดช่องโหว่ AndroidManifest, Path Sanitization, ลบรูปค้าง และส่งต่อ `401`
+
+- **สิ่งที่เปลี่ยน (`android/app/src/main/AndroidManifest.xml`, `lib/services/local_photo_store.dart`, `lib/services/file_download_service.dart`, `lib/services/attendance_service.dart`, `lib/services/technician_service.dart`):**
+  - ปิด HTTP cleartext (`android:usesCleartextTraffic="false"`) และปิดสำรองข้อมูล (`android:allowBackup="false"`) ใน `AndroidManifest.xml`
+  - กรองอักขระพิเศษ/path traversal ใน `LocalPhotoStore` (`_sanitizeId`) และ `FileDownloadService` (`_sanitizeFilename`) พร้อมใช้ `Platform.pathSeparator`
+  - ลบรูปค้างบนเครื่องเมื่อล้าง malformed pending record ใน `AttendanceService._clearPendingRequest`
+  - ส่งต่อ `401` ทันทีใน `TechnicianService._getPaginatedList`/`_safeGetList`, หยุดวน `_confirmJobStatusViaNestApi` ทันทีเมื่อเจอ `401`/`403`/`5xx`, และเรียง/เทียบ ISO timestamp แบบ UTC (`_compareIsoTimestamps`)
+- **ปัญหาที่พบ → วิธีแก้:** เดิมเปิด cleartext HTTP + allowBackup, ชื่อไฟล์ไม่กรอง path separator, malformed pending record ทิ้งไฟล์รูปไว้บน disk และ `_safeGetList` กลืน `401` → แก้ครบทั้ง 4 จุดตามข้างต้น
+- **ผลตรวจ:** `flutter analyze --no-fatal-infos` ทั้ง 4 ไฟล์ → **No issues found!**, `flutter test test/technician_attendance_test.dart test/auth_service_test.dart test/leave_pdf_builder_test.dart` → **ผ่านครบ 48/48 ข้อ**, และ Build Release APK ติดตั้งบน `emulator-5554`
+- ตรวจ `README.md` แล้ว ภาพรวมการเชื่อมต่อ HTTPS ยังตรงกัน
+
+### 28 พฤศจิกายน 2026 — อัปเกรดหน้า SplashScreen (Marine Sonar Pulse + Orbital Ring + Live Greeting Pill)
+
+- **สิ่งที่เปลี่ยน (`lib/screens/splash_screen.dart`):**
+  - แทนที่วงกระเพื่อมชั้นเดียวและ `LinearProgressIndicator` เดิมด้วย `_SonarOrbitalPainter` (`CustomPainter` + `RepaintBoundary` 60/120fps): คลื่นโซนาร์ 2 ชั้นแผ่ออกรอบโลโก้ + เส้นแสง `SweepGradient` โคจรรอบขอบวงกลมพร้อมจุดนำแสง
+  - แทนที่แถบโหลดด้านล่างด้วย `splash-status-pill` ที่มีจุดคลื่น 3 จุด (`_SplashWaveDots`) และทักชื่อผู้ใช้ที่จำไว้ในเครื่อง (`Welcome back, <ชื่อ>` / `ยินดีต้อนรับกลับ, <ชื่อ>`)
+- **ปัญหาที่พบ → วิธีแก้:** เดิมหน้าโหลดเป็นเส้นตรงธรรมดาและไม่แสดงชื่อผู้ใช้ → ใช้ `TickerProviderStateMixin` + `_ambientController` (หยุดอัตโนมัติเมื่อ `connectionUnavailable` หรือเปิด `disableAnimations`) และโหลดชื่อจาก `AuthService.getSavedUser()` แบบไม่บล็อกการตรวจ session
+- **ผลตรวจ:** `flutter analyze --no-fatal-infos lib/screens/splash_screen.dart` → **0 error / 0 warning** (มีเฉพาะ `info` SDK), `flutter test test/splash_screen_test.dart` → **ผ่านครบ 6/6 ข้อ**, และ Build Release APK ติดตั้งบน `emulator-5554`
+- ตรวจ `README.md` แล้ว ภาพรวมหน้า SplashScreen ยังตรงกัน
+
+### 28 พฤศจิกายน 2026 — Optimize ประสิทธิภาพ: ลด Request เบื้องหลัง, Reuse HTTP Client, Cache รูป และ Parallel Cold Start
+
+- **Network & Battery (`lib/services/technician_service.dart`, `lib/screens/main_shell.dart`, `lib/screens/attendance_screen.dart`):**
+  - **ปัญหา → วิธีแก้:** เดิมทุก 15 วิยิง 12+ requests ซ้ำ (รวมถึง `404 /technician/my-jobs`, `/projects`, `/vessels`, `/assets`, `/team-members`, `getAttendanceStatus` ซ้ำ 2 รอบ และเปิด `http.Client` ใหม่ทุกครั้ง) → ใช้ `static http.Client _client` ร่วมกันทั้ง `TechnicianService`, memoize `404` ตาม `baseUrl`, cache ข้อมูลอ้างอิง 5 นาที (ล้างเมื่อรีเฟรช/สลับบัญชี), ส่ง `prefetchedAttendanceStatus` ข้ามการยิงซ้ำ, เพิ่มรอบ poll เป็น 30 วิ และหยุด poll อัตโนมัติเมื่ออยู่นอกแท็บ Attendance พร้อมเช็ค diff ก่อน `setState`
+- **Memory, Frame Rate & Cold Start (`lib/main.dart`, `lib/screens/technician_report_screen.dart`, `lib/screens/attendance_camera_screen.dart`):**
+  - **ปัญหา → วิธีแก้:** รูปย่อ 92×92 และพรีวิวถอดรหัสภาพเต็มความละเอียดลง RAM + `_deadlineTimer` 30 วิ rebuild ทั้งฟอร์มขณะพิมพ์ + `main()` init เรียงคิวซ้ำ → ใส่ `cacheWidth` ตามขนาดแสดงผล, แยก `_ReportDeadlineBanner` ออกเป็น widget อิสระ, และใช้ `Future.wait` โหลด `.env` / `ThemeService.init()` / `LanguageService.init()` พร้อมกัน
+- **ผลตรวจ:** `flutter analyze --no-fatal-infos` ทั้ง 6 ไฟล์ที่แก้ → **0 error / 0 warning** (มีเฉพาะ SDK `deprecated_member_use` `info`), `flutter test` 4 ชุด (`technician_attendance_test`, `ui_refresh_test`, `splash_screen_test`, `widget_test`) → **ผ่านครบ 41/41 ข้อ**
+- ตรวจ `README.md` แล้ว ภาพรวมการเชื่อมต่อและคำสั่งรันยังตรงกัน
 
 ### 28 พฤศจิกายน 2026 — ปิดช่องโหว่/บั๊ก Services + UI/Obsidian Contrast + รองรับฟิลด์ Dispatch ล่วงหน้า + QoL หน้างาน
 

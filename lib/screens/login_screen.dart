@@ -332,6 +332,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 textInputAction: TextInputAction.next,
                 autocorrect: false,
                 enabled: !_loading,
+                style: TextStyle(
+                  fontFamily: 'IBM Plex Sans Thai',
+                  fontSize: 15,
+                  color: AppColors.neutral,
+                  letterSpacing: 0.2,
+                ),
                 decoration: InputDecoration(
                   labelText: AppStrings.t('Username', 'ชื่อผู้ใช้'),
                   prefixIcon: const Icon(Icons.person_outline),
@@ -359,7 +365,15 @@ class _LoginScreenState extends State<LoginScreen> {
               controller: _passwordController,
               obscureText: _obscurePassword,
               textInputAction: TextInputAction.done,
+              autocorrect: false,
+              enableSuggestions: false,
               enabled: !_loading,
+              style: TextStyle(
+                fontFamily: 'IBM Plex Sans Thai',
+                fontSize: 15,
+                color: AppColors.neutral,
+                letterSpacing: 0.2,
+              ),
               decoration: InputDecoration(
                 labelText: AppStrings.t('Password', 'รหัสผ่าน'),
                 prefixIcon: const Icon(Icons.lock_outline),

@@ -18,6 +18,15 @@ class FileDownloadService {
   static Future<String> Function(Uint8List bytes, String filename)?
   debugDownloadOverride;
 
+  static String _sanitizeFilename(String raw) {
+    final base = raw.split(RegExp(r'[/\\]')).last;
+    final cleaned = base
+        .replaceAll('..', '_')
+        .replaceAll(RegExp(r'[\x00-\x1F\x7F<>:"|?*]'), '_')
+        .trim();
+    return cleaned.isEmpty ? 'document.pdf' : cleaned;
+  }
+
   /// Saves [bytes] with [filename] directly to the device storage
   /// (e.g. system Downloads folder on Android/Desktop).
   ///
@@ -26,20 +35,21 @@ class FileDownloadService {
     required Uint8List bytes,
     required String filename,
   }) async {
+    final safeName = _sanitizeFilename(filename);
     if (debugDownloadOverride != null) {
-      return debugDownloadOverride!(bytes, filename);
+      return debugDownloadOverride!(bytes, safeName);
     }
 
     if (kIsWeb) {
-      await Printing.sharePdf(bytes: bytes, filename: filename);
-      return filename;
+      await Printing.sharePdf(bytes: bytes, filename: safeName);
+      return safeName;
     }
 
     if (Platform.isAndroid) {
       try {
         final result = await _channel.invokeMethod<String>('saveToDownloads', {
           'bytes': bytes,
-          'filename': filename,
+          'filename': safeName,
         });
         if (result != null && result.isNotEmpty) {
           return result;
@@ -61,13 +71,13 @@ class FileDownloadService {
       if (!await dir.exists()) {
         await dir.create(recursive: true);
       }
-      final file = File('${dir.path}/$filename');
+      final file = File('${dir.path}${Platform.pathSeparator}$safeName');
       await file.writeAsBytes(bytes, flush: true);
       return file.path;
     } catch (_) {
       // Last resort fallback
       final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/$filename');
+      final file = File('${dir.path}${Platform.pathSeparator}$safeName');
       await file.writeAsBytes(bytes, flush: true);
       return file.path;
     }

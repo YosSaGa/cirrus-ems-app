@@ -1,6 +1,7 @@
 package com.cirrusgroup.ems
 
 import android.Manifest
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,15 +11,47 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileOutputStream
+import java.util.Calendar
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableHighRefreshRate()
+    }
+
+    private fun enableHighRefreshRate() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        try {
+            val activeDisplay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                display
+            } else {
+                @Suppress("DEPRECATION")
+                windowManager.defaultDisplay
+            } ?: return
+            val currentMode = activeDisplay.mode
+            val bestMode = activeDisplay.supportedModes
+                .filter {
+                    it.physicalWidth == currentMode.physicalWidth &&
+                        it.physicalHeight == currentMode.physicalHeight
+                }
+                .maxByOrNull { it.refreshRate } ?: return
+            if (bestMode.modeId != currentMode.modeId) {
+                val params = window.attributes
+                params.preferredDisplayModeId = bestMode.modeId
+                window.attributes = params
+            }
+        } catch (_: Throwable) {
+            // Safe no-op on devices/ROMs restricting display mode switching.
+        }
+    }
     private val CHANNEL = "com.cirrusgroup.ems/downloader"
     private val TIMER_CHANNEL = "com.cirrusgroup.ems/work_timer"
     private val TIMER_CHANNEL_ID = "cirrus_work_timer"
@@ -94,6 +127,22 @@ class MainActivity : FlutterActivity() {
                         return@setMethodCallHandler
                     }
                     postNewJobAlertNotification(title, body, vibrate)
+                    result.success(true)
+                }
+                "scheduleShiftReminders" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        requestPermissions(
+                            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                            REQ_POST_NOTIFICATIONS
+                        )
+                    }
+                    scheduleDailyShiftReminders()
+                    result.success(true)
+                }
+                "cancelShiftReminders" -> {
+                    cancelDailyShiftReminders()
                     result.success(true)
                 }
                 else -> result.notImplemented()
@@ -243,6 +292,60 @@ class MainActivity : FlutterActivity() {
                 stream.write(bytes)
             }
             file.absolutePath
+        }
+    }
+
+    private fun scheduleDailyShiftReminders() {
+        val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val slots = listOf(
+            Triple(4201, 7 to 55, "Morning Check-In (07:55)"),
+            Triple(4202, 12 to 0, "Lunch Break Scan (12:00)"),
+            Triple(4203, 13 to 0, "Afternoon Check-In (13:00)"),
+            Triple(4204, 17 to 0, "Evening Check-Out (17:00)")
+        )
+        val now = Calendar.getInstance()
+        for ((reqCode, hm, label) in slots) {
+            val cal = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, hm.first)
+                set(Calendar.MINUTE, hm.second)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+                if (before(now)) add(Calendar.DAY_OF_YEAR, 1)
+            }
+            val intent = Intent(this, ShiftReminderReceiver::class.java).apply {
+                putExtra("id", reqCode)
+                putExtra("title", "Cirrus EMS Reminder")
+                putExtra("body", label)
+            }
+            val pi = PendingIntent.getBroadcast(
+                this,
+                reqCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            am.setInexactRepeating(
+                AlarmManager.RTC_WAKEUP,
+                cal.timeInMillis,
+                AlarmManager.INTERVAL_DAY,
+                pi
+            )
+        }
+    }
+
+    private fun cancelDailyShiftReminders() {
+        val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        for (reqCode in 4201..4204) {
+            val intent = Intent(this, ShiftReminderReceiver::class.java)
+            val pi = PendingIntent.getBroadcast(
+                this,
+                reqCode,
+                intent,
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            )
+            if (pi != null) {
+                am.cancel(pi)
+                pi.cancel()
+            }
         }
     }
 }

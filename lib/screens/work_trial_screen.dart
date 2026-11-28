@@ -9,7 +9,10 @@ import 'earnings_trial_tab.dart';
 import 'leave_trial_tab.dart';
 
 class WorkTrialScreen extends StatefulWidget {
-  const WorkTrialScreen({super.key});
+  const WorkTrialScreen({super.key, this.onOpenDrawer});
+
+  final VoidCallback? onOpenDrawer;
+
   @override
   State<WorkTrialScreen> createState() => _WorkTrialScreenState();
 }
@@ -57,6 +60,13 @@ class _WorkTrialScreenState extends State<WorkTrialScreen>
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: AppColors.primary,
     appBar: AppBar(
+      leading: widget.onOpenDrawer != null
+          ? IconButton(
+              tooltip: AppStrings.t('Menu', 'เมนู', 'Menu'),
+              onPressed: widget.onOpenDrawer,
+              icon: const Icon(Icons.menu_rounded),
+            )
+          : null,
       title: Text(AppStrings.t('Earnings & Leave', 'ค่าแรงและวันลา')),
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(48),

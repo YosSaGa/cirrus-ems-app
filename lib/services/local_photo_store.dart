@@ -12,11 +12,16 @@ class LocalPhotoStore {
   /// Test-only override for the documents directory.
   static Future<Directory> Function()? debugDirectoryOverride;
 
+  static String _sanitizeId(String raw) {
+    final cleaned = raw.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    return cleaned.isEmpty ? 'photo' : cleaned;
+  }
+
   static Future<Directory> _photosDirectory() async {
     final base = debugDirectoryOverride != null
         ? await debugDirectoryOverride!()
         : await getApplicationDocumentsDirectory();
-    final dir = Directory('${base.path}/attendance_photos');
+    final dir = Directory('${base.path}${Platform.pathSeparator}attendance_photos');
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
@@ -42,8 +47,9 @@ class LocalPhotoStore {
     CapturedPhoto photo,
   ) async {
     final dir = await _photosDirectory();
+    final safeId = _sanitizeId(uploadRequestId);
     final file = File(
-      '${dir.path}/$uploadRequestId.${_extensionFor(photo.mimeType)}',
+      '${dir.path}${Platform.pathSeparator}$safeId.${_extensionFor(photo.mimeType)}',
     );
     await file.writeAsBytes(photo.bytes, flush: true);
     return file.path;
@@ -66,7 +72,7 @@ class LocalPhotoStore {
           : 'image/jpeg';
       return CapturedPhoto(
         bytes: bytes,
-        fileName: filePath.split(Platform.pathSeparator).last,
+        fileName: filePath.split(RegExp(r'[/\\]')).last,
         mimeType: mimeType,
       );
     } catch (_) {

@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../l10n/app_strings.dart';
 import '../services/app_preferences_service.dart';
 import '../services/auth_service.dart';
+import '../services/biometric_service.dart';
 import '../services/language_service.dart';
+import '../services/shift_reminder_service.dart';
 import '../services/theme_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/fade_slide_entry.dart';
@@ -11,6 +13,7 @@ import 'appearance_settings_screen.dart';
 import 'device_check_screen.dart';
 import 'help_faq_screen.dart';
 import 'language_settings_screen.dart';
+import 'leave_approval_screen.dart';
 import 'payroll_management_screen.dart';
 import 'storage_cache_screen.dart';
 import 'technician_history_screen.dart';
@@ -33,6 +36,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _canManagePayroll = false;
+  bool _canApproveLeave = false;
   bool _isTechnician = false;
 
   @override
@@ -44,13 +48,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadPermissions() async {
     final results = await Future.wait([
       AuthService.canManagePayroll(),
+      AuthService.canApproveLeave(),
       AuthService.isTechnician(),
     ]);
-    final allowed = results[0];
-    final isTech = results[1];
-    if (mounted && (allowed != _canManagePayroll || isTech != _isTechnician)) {
+    final allowedPayroll = results[0];
+    final allowedLeave = results[1];
+    final isTech = results[2];
+    if (mounted &&
+        (allowedPayroll != _canManagePayroll ||
+            allowedLeave != _canApproveLeave ||
+            isTech != _isTechnician)) {
       setState(() {
-        _canManagePayroll = allowed;
+        _canManagePayroll = allowedPayroll;
+        _canApproveLeave = allowedLeave;
         _isTechnician = isTech;
       });
     }
@@ -160,6 +170,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         LanguageService.languageNotifier,
         AppPreferencesService.hapticsEnabledNotifier,
         AppPreferencesService.jobAlertsEnabledNotifier,
+        AppPreferencesService.soundEffectsEnabledNotifier,
+        BiometricService.biometricLockEnabledNotifier,
+        ShiftReminderService.shiftRemindersEnabledNotifier,
       ]),
       builder: (context, _) {
         final activeMode = ThemeService.currentMode;
@@ -300,6 +313,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     AppPreferencesService.setHapticsEnabled,
                               ),
                             ),
+                            Divider(height: 1, color: AppColors.cardBorder),
+                            _settingsItem(
+                              icon: Icons.volume_up_outlined,
+                              title: AppStrings.t(
+                                'Sound & Celebration Effects',
+                                'เสียงและเอฟเฟกต์แจ้งเตือนสำเร็จ',
+                                'Kesan Bunyi & Animasi',
+                              ),
+                              subtitle: AppStrings.t(
+                                'Play chime and confirmation overlay',
+                                'แสดงเอฟเฟกต์และเสียงเบาๆ เมื่อทำรายการสำเร็จ',
+                                'Mainkan bunyi & paparan pengesahan',
+                              ),
+                              trailing: Switch.adaptive(
+                                key: const Key('settings-sound-effects-switch'),
+                                value:
+                                    AppPreferencesService.soundEffectsEnabled,
+                                activeThumbColor: AppColors.secondary,
+                                onChanged: AppPreferencesService
+                                    .setSoundEffectsEnabled,
+                              ),
+                            ),
+                            Divider(height: 1, color: AppColors.cardBorder),
+                            _settingsItem(
+                              icon: Icons.fingerprint_rounded,
+                              title: AppStrings.t(
+                                'Biometric Pay Lock',
+                                'ล็อกหน้าค่าแรงด้วยสแกนนิ้ว / Face ID',
+                                'Kunci Biometrik Gaji',
+                              ),
+                              subtitle: AppStrings.t(
+                                'Require biometric unlock for Pay & E-Payslip',
+                                'ต้องยืนยันตัวตนก่อนดูค่าแรงและสลิปเงินเดือน',
+                                'Perlukan biometrik untuk buka Gaji & E-Slip',
+                              ),
+                              trailing: Switch.adaptive(
+                                key: const Key('settings-biometric-switch'),
+                                value: BiometricService.biometricLockEnabled,
+                                activeThumbColor: AppColors.secondary,
+                                onChanged:
+                                    BiometricService.setBiometricLockEnabled,
+                              ),
+                            ),
+                            Divider(height: 1, color: AppColors.cardBorder),
+                            _settingsItem(
+                              icon: Icons.alarm_on_rounded,
+                              title: AppStrings.t(
+                                'Shift Scan Reminders',
+                                'แจ้งเตือนเวลาสแกน 4 ช่วง',
+                                'Peringatan Imbas Syif',
+                              ),
+                              subtitle: AppStrings.t(
+                                'Daily alerts at 07:55, 12:00, 13:00, 17:00',
+                                'เตือนอัตโนมัติเวลา 07:55, 12:00, 13:00 และ 17:00',
+                                'Peringatan harian 07:55, 12:00, 13:00, 17:00',
+                              ),
+                              trailing: Switch.adaptive(
+                                key: const Key('settings-shift-reminders-switch'),
+                                value: ShiftReminderService.enabled,
+                                activeThumbColor: AppColors.secondary,
+                                onChanged: ShiftReminderService.setEnabled,
+                              ),
+                            ),
                             if (_isTechnician) ...[
                               Divider(height: 1, color: AppColors.cardBorder),
                               _settingsItem(
@@ -395,8 +471,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const SizedBox(height: AppSpacing.lg),
                       ],
 
-                      if (_canManagePayroll) ...[
-                        // MANAGEMENT (HR / Admin / Accountant / Owner)
+                      if (_canManagePayroll || _canApproveLeave) ...[
+                        // MANAGEMENT (HR / Admin / Accountant / Manager / Owner)
                         FadeSlideEntry(
                           yOffset: 15,
                           child: _sectionLabel(
@@ -406,30 +482,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         FadeSlideEntry(
                           yOffset: 16,
                           child: _groupCard([
-                            _settingsItem(
-                              icon: Icons.account_balance_wallet_outlined,
-                              title: AppStrings.t(
-                                'Payroll & Deductions',
-                                'จัดการค่าแรงและรายการหัก',
-                              ),
-                              subtitle: AppStrings.t(
-                                'Hourly rate, Accommodation, Social Security, Work Insurance',
-                                'เรทต่อชั่วโมง · ค่าที่พัก · ประกันสังคม · ค่าประกันงาน',
-                              ),
-                              trailing: Icon(
-                                Icons.chevron_right_rounded,
-                                color: AppColors.textSecondary,
-                                size: 22,
-                              ),
-                              onTap: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) =>
-                                        const PayrollManagementScreen(),
+                            if (_canApproveLeave) ...[
+                              KeyedSubtree(
+                                key: const Key('settings-leave-approval-tile'),
+                                child: _settingsItem(
+                                  icon: Icons.fact_check_outlined,
+                                  title: AppStrings.t(
+                                    'Leave Approvals',
+                                    'อนุมัติใบลาพนักงาน',
+                                    'Kelulusan Cuti',
                                   ),
-                                );
-                              },
-                            ),
+                                  subtitle: AppStrings.t(
+                                    'Review, approve or reject employee leave requests',
+                                    'ตรวจสอบ อนุมัติ หรือปฏิเสธคำขอลาของพนักงาน',
+                                    'Semak, lulus atau tolak permohonan cuti pekerja',
+                                  ),
+                                  trailing: Icon(
+                                    Icons.chevron_right_rounded,
+                                    color: AppColors.textSecondary,
+                                    size: 22,
+                                  ),
+                                  onTap: () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) =>
+                                            const LeaveApprovalScreen(),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                              if (_canManagePayroll)
+                                Divider(height: 1, color: AppColors.cardBorder),
+                            ],
+                            if (_canManagePayroll)
+                              _settingsItem(
+                                icon: Icons.account_balance_wallet_outlined,
+                                title: AppStrings.t(
+                                  'Payroll & Deductions',
+                                  'จัดการค่าแรงและรายการหัก',
+                                ),
+                                subtitle: AppStrings.t(
+                                  'Hourly rate, Accommodation, Social Security, Work Insurance',
+                                  'เรทต่อชั่วโมง · ค่าที่พัก · ประกันสังคม · ค่าประกันงาน',
+                                ),
+                                trailing: Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: AppColors.textSecondary,
+                                  size: 22,
+                                ),
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) =>
+                                          const PayrollManagementScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
                           ]),
                         ),
                         const SizedBox(height: AppSpacing.lg),

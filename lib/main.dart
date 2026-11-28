@@ -1,8 +1,11 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import 'screens/splash_screen.dart';
 import 'services/app_preferences_service.dart';
+import 'services/biometric_service.dart';
 import 'services/language_service.dart';
+import 'services/shift_reminder_service.dart';
 import 'services/theme_service.dart';
 import 'theme/app_theme.dart';
 
@@ -11,10 +14,19 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await dotenv.load(fileName: '.env');
-  await ThemeService.init();
-  await LanguageService.init();
-  await AppPreferencesService.init();
+  // Align touch/scroll sampling with 60Hz/90Hz/120Hz VSync to remove drag jitter,
+  // and cap image cache at 64 MB to prevent GC stalls on 2-4GB budget phones.
+  GestureBinding.instance.resamplingEnabled = true;
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 64 * 1024 * 1024;
+
+  await Future.wait([
+    dotenv.load(fileName: '.env'),
+    ThemeService.init(),
+    LanguageService.init(),
+    AppPreferencesService.init(),
+    BiometricService.init(),
+    ShiftReminderService.init(),
+  ]);
 
   runApp(const MyApp());
 }

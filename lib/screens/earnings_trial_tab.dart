@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
 
 import '../l10n/app_strings.dart';
 import '../models/payroll_calculator.dart';
 import '../services/attendance_service.dart';
 import '../services/auth_service.dart';
+import '../services/biometric_service.dart';
+import '../services/file_download_service.dart';
 import '../services/payroll_service.dart';
+import '../services/payslip_pdf_builder.dart';
 import '../services/work_trial_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/fade_slide_entry.dart';
 import '../widgets/pay_wallet_card.dart';
 import '../widgets/status_banner.dart';
+import '../widgets/success_feedback_overlay.dart';
 import 'pay_calculator_screen.dart';
 
 class EarningsTrialTab extends StatefulWidget {
@@ -37,6 +42,8 @@ class _EarningsTrialTabState extends State<EarningsTrialTab>
   List<PayrollAdjustmentItem> _payrollItems = const [];
 
   List<Map<String, dynamic>> _lastScans = const [];
+  bool _biometricUnlocked = false;
+  bool _exportingPayslip = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -198,9 +205,183 @@ class _EarningsTrialTabState extends State<EarningsTrialTab>
   String _shortDayMonth(DateTime d) =>
       '${d.day} ${AppStrings.monthShort(d.month)}';
 
+  Future<void> _unlockBiometrics() async {
+    final ok = await BiometricService.authenticate(
+      AppStrings.t(
+        'Unlock Pay Estimate & E-Payslip',
+        'ยืนยันตัวตนเพื่อดูค่าแรงและสลิปเงินเดือน',
+        'Sahkan untuk membuka Gaji & E-Slip',
+      ),
+    );
+    if (!mounted) return;
+    if (ok) {
+      setState(() => _biometricUnlocked = true);
+    }
+  }
+
+  Future<void> _exportPayslipPdf() async {
+    final estimate = _estimate;
+    if (estimate == null || _exportingPayslip) return;
+    setState(() => _exportingPayslip = true);
+    try {
+      final bytes = await PayslipPdfBuilder.build(
+        employeeName: _holderName ?? 'Employee',
+        employeeCode: _employeeCode,
+        department: _department,
+        cycle: _cycle,
+        estimate: estimate,
+        settings: _activePaySettings,
+        adjustments: _payrollItems,
+      );
+      if (!mounted) return;
+      final fileName =
+          'cirrus_payslip_${_cycle.year}_${_cycle.month.toString().padLeft(2, '0')}.pdf';
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (previewContext) => Scaffold(
+            backgroundColor: AppColors.primary,
+            appBar: AppBar(
+              backgroundColor: AppColors.primary,
+              foregroundColor: AppColors.neutral,
+              title: Text(
+                AppStrings.t(
+                  'E-Payslip Preview',
+                  'ตัวอย่างสลิปเงินเดือน PDF',
+                  'Pratonton E-Slip',
+                ),
+              ),
+              actions: [
+                IconButton(
+                  tooltip: AppStrings.t('Download PDF', 'บันทึก PDF', 'Muat turun PDF'),
+                  icon: const Icon(Icons.download_rounded),
+                  onPressed: () async {
+                    final savedPath = await FileDownloadService.downloadFile(
+                      bytes: bytes,
+                      filename: fileName,
+                    );
+                    if (!previewContext.mounted) return;
+                    if (savedPath.isNotEmpty) {
+                      await SuccessFeedbackOverlay.show(
+                        previewContext,
+                        title: AppStrings.t(
+                          'Payslip Saved',
+                          'บันทึกสลิปเงินเดือนแล้ว',
+                          'E-Slip Disimpan',
+                        ),
+                        subtitle: fileName,
+                      );
+                    }
+                  },
+                ),
+                IconButton(
+                  tooltip: AppStrings.t('Share PDF', 'แชร์ PDF', 'Kongsi PDF'),
+                  icon: const Icon(Icons.share_rounded),
+                  onPressed: () => Printing.sharePdf(
+                    bytes: bytes,
+                    filename: fileName,
+                  ),
+                ),
+              ],
+            ),
+            body: PdfPreview(
+              build: (_) async => bytes,
+              canChangePageFormat: false,
+              canChangeOrientation: false,
+              allowPrinting: true,
+              allowSharing: true,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _exportingPayslip = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    if (BiometricService.biometricLockEnabled && !_biometricUnlocked) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(AppRadius.surface),
+              border: Border.all(color: AppColors.cardBorder),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.secondary.withValues(alpha: 0.14),
+                  ),
+                  child: Icon(
+                    Icons.fingerprint_rounded,
+                    size: 36,
+                    color: AppColors.neutral,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  AppStrings.t(
+                    'Pay Estimate Locked',
+                    'หน้าประมาณการค่าแรงถูกล็อก',
+                    'Anggaran Gaji Dikunci',
+                  ),
+                  style: TextStyle(
+                    color: AppColors.neutral,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  AppStrings.t(
+                    'Verify your fingerprint or Face ID to view salary & E-Payslip.',
+                    'ยืนยันตัวตนด้วยลายนิ้วมือหรือ Face ID เพื่อดูค่าแรงและสลิปเงินเดือน',
+                    'Sahkan cap jari atau Face ID untuk melihat gaji & E-Slip.',
+                  ),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                FilledButton.icon(
+                  key: const Key('unlock-biometric-pay-button'),
+                  onPressed: _unlockBiometrics,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.neutral,
+                    foregroundColor: AppColors.onNeutral,
+                    shape: const StadiumBorder(),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 22,
+                      vertical: 12,
+                    ),
+                  ),
+                  icon: const Icon(Icons.lock_open_rounded, size: 18),
+                  label: Text(
+                    AppStrings.t(
+                      'Unlock with Biometrics',
+                      'ปลดล็อกด้วยสแกนนิ้ว / Face ID',
+                      'Buka Kunci Biometrik',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     final now = bangkokNow();
     final ended = _cycle.hasEnded(now);
     final daysUntilPayday = _cycle.daysUntilPayday(now);
@@ -644,6 +825,80 @@ class _EarningsTrialTabState extends State<EarningsTrialTab>
                                 AppStrings.t(
                                   'Test custom salary, base days & hours',
                                   'ลองปรับเงินเดือน วันฐาน หรือชั่วโมงทำงาน',
+                                ),
+                                style: text.bodySmall?.copyWith(
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          color: AppColors.textSecondary,
+                          size: 22,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Card(
+                elevation: 0,
+                color: AppColors.surface,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.surface),
+                  side: BorderSide(color: AppColors.cardBorder),
+                ),
+                child: InkWell(
+                  key: const Key('export-payslip-pdf-button'),
+                  borderRadius: BorderRadius.circular(AppRadius.surface),
+                  onTap: estimate == null || _exportingPayslip
+                      ? null
+                      : _exportPayslipPdf,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.lg,
+                      vertical: 14,
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: AppColors.secondary.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.picture_as_pdf_outlined,
+                            color: AppColors.neutral,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                AppStrings.t(
+                                  'E-Payslip PDF',
+                                  'ออกสลิปเงินเดือน (PDF)',
+                                  'E-Slip Gaji (PDF)',
+                                ),
+                                style: text.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.neutral,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                AppStrings.t(
+                                  'Download or share monthly payslip',
+                                  'ดาวน์โหลดหรือแชร์สลิปประจำรอบบัญชี',
+                                  'Muat turun atau kongsi slip gaji',
                                 ),
                                 style: text.bodySmall?.copyWith(
                                   color: AppColors.textSecondary,

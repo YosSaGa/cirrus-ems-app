@@ -69,7 +69,8 @@ Attendance ส่งรูปและ event ผ่าน `AttendanceService` �
 | `earnings_trial_tab.dart` | ประมาณค่าแรงจากสแกน (เรทต่อชั่วโมงตรง หรือ `เงินเดือน ÷ 30 ÷ 8`, fallback 300/8 ชม.) และการ์ดรายการหัก/ยอดสุทธิ (`_PayrollDeductionsCard`) |
 | `pay_calculator_screen.dart` | หน้าเสริมจำลองคำนวณค่าแรงเอง (custom เงินเดือน/วันฐาน `30/26/22` และชั่วโมง/นาที ฝั่งเครื่องเท่านั้น) |
 | `payroll_management_screen.dart` | หน้าจัดการอัตราค่าแรงรายชั่วโมงและรายการหัก (ค่าที่พัก, ประกันสังคม, ค่าประกันงาน, กำหนดเอง) เฉพาะสิทธิ์ HR Officer / Admin / Accountant / Owner |
-| `leave_trial_tab.dart` | ฟอร์มและรายการแบบร่างลาในเครื่อง (แสดงล่าสุด 2 รายการ + ปุ่มดูทั้งหมด) |
+| `leave_trial_tab.dart` | ฟอร์มและรายการลา (ส่งคำขอลาเข้า HR DB + แบบร่างในเครื่อง + PDF) |
+| `leave_approval_screen.dart` | หน้าอนุมัติ/ไม่อนุมัติใบลาพนักงานสำหรับ HR/Admin/Manager/Owner |
 | `leave_drafts_screen.dart` | หน้าแยกแสดงรายการแบบร่างใบลาทั้งหมดพร้อมกรองสถานะ All / Active / Cancelled |
 | `settings_screen.dart` | เมนูตั้งค่าหลักของแอป (`Appearance`, `Language`, `Management` เฉพาะสิทธิ์ HR/Admin/Accountant, `About`) นำทางไปยังการตั้งค่าย่อย |
 | `appearance_settings_screen.dart` | หน้าย่อย `Appearance` (รวม `App Theme` + `Pay Card Style`) และหน้า `PayCardStyleScreen` แสดงตัวอย่างบัตร `PayWalletCard` จริงพร้อมวงกลมเลือกสี 5 แบบ |
@@ -85,9 +86,11 @@ Attendance ส่งรูปและ event ผ่าน `AttendanceService` �
 | ไฟล์ | หน้าที่ |
 | --- | --- |
 | `lib/services/auth_service.dart` | เลือก base URL, HTTP auth, login/logout, session, Web SSO และตรวจสิทธิ์ RBAC (`canManagePayroll`, `isTechnician`) |
+| `lib/services/secure_token_store.dart` | เข้ารหัสและจัดเก็บ JWT + Switch-Account tokens ด้วย `flutter_secure_storage` (Android Keystore / iOS Keychain) พร้อม auto-migrate จาก `SharedPreferences` |
 | `lib/services/technician_service.dart` | REST client โหมดช่าง (`GET /technician/my-jobs`, `POST /technician/check-in`, `POST /technician/check-out`) เฉพาะ Role `Technician` |
 | `lib/services/work_timer_notification_service.dart` | แสดง/ยกเลิก Android Chronometer notification นับเวลาทำงานสดบนแถบแจ้งเตือนระหว่างช่างอยู่ในสถานะ `ON SITE` (ผ่าน `MethodChannel`) |
 | `lib/services/payroll_service.dart` | REST client สำหรับดึง/อัปเดตอัตราค่าแรงรายชั่วโมง (`hr.compensation`) และเพิ่ม/แก้ไข/ลบรายการหัก (`hr.employee_payroll_items`) |
+| `lib/services/leave_service.dart` | REST client สำหรับส่งคำขอลา ดึงรายการ และอนุมัติ/ปฏิเสธใบลา (`GET/POST /leave`, `approve`, `reject`) |
 | `lib/services/attendance_service.dart` | API สถานะ สแกน ประวัติ อัปโหลดรูป ส่ง event และจัดการ pending request รวม request ID สำหรับ retry |
 | `lib/services/location_service.dart` | ขอพิกัดปัจจุบันตามสิทธิ์อุปกรณ์ |
 | `lib/services/local_photo_store.dart` | เก็บ อ่าน และลบรูปใน app documents สำหรับ retry บนแพลตฟอร์มที่รองรับ |
@@ -111,7 +114,9 @@ Attendance ส่งรูปและ event ผ่าน `AttendanceService` �
 | ไฟล์ | หน้าที่ |
 | --- | --- |
 | `app_bottom_nav.dart` | แถบนำทางมือถือและ animation ของแท็บ |
+| `app_quick_drawer.dart` | เมนูลัด (Drawer `☰`) แสดงฟีเจอร์นอก Bottom Nav ตาม Role ผู้ใช้ |
 | `app_side_nav.dart` | แถบนำทาง desktop |
+| `success_feedback_overlay.dart` | แอนิเมชัน + เสียงแจ้งเตือนเมื่อส่งคำขอ/อนุมัติ/บันทึกสลิปสำเร็จ |
 | `app_logo.dart` | แสดงโลโก้ Cirrus จาก SVG |
 | `ambient_panel.dart` | พื้นหลังตกแต่ง navy/turquoise |
 | `pay_wallet_card.dart` | การ์ดประมาณการค่าแรงสไตล์ Wallet Card พร้อม EMV chip, รหัสพนักงานจริง และแอนิเมชันแตะพลิก 3D |
