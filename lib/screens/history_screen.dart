@@ -1180,12 +1180,28 @@ class _MonthSelector extends StatelessWidget {
                   color: AppColors.secondary,
                 ),
                 const SizedBox(width: AppSpacing.xs),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.neutral,
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  transitionBuilder: (child, anim) => FadeTransition(
+                    opacity: anim,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0, 0.18),
+                        end: Offset.zero,
+                      ).animate(
+                        CurvedAnimation(parent: anim, curve: Curves.easeOutCubic),
+                      ),
+                      child: child,
+                    ),
+                  ),
+                  child: Text(
+                    label,
+                    key: ValueKey(label),
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.neutral,
+                    ),
                   ),
                 ),
               ],
@@ -1290,15 +1306,24 @@ class _WorkingHoursCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 2),
-                        Text(
-                          AppStrings.formatHoursMinutes(verifiedPayMinutes),
-                          style: text.displaySmall?.copyWith(
-                            fontSize: 38,
-                            height: 1.08,
-                            color: AppColors.secondary,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.8,
-                            fontFeatures: const [FontFeature.tabularFigures()],
+                        TweenAnimationBuilder<int>(
+                          tween: IntTween(begin: 0, end: verifiedPayMinutes),
+                          duration:
+                              (MediaQuery.maybeDisableAnimationsOf(context) ??
+                                  false)
+                              ? Duration.zero
+                              : const Duration(milliseconds: 380),
+                          curve: Curves.easeOutCubic,
+                          builder: (context, animatedMinutes, _) => Text(
+                            AppStrings.formatHoursMinutes(animatedMinutes),
+                            style: text.displaySmall?.copyWith(
+                              fontSize: 38,
+                              height: 1.08,
+                              color: AppColors.secondary,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.8,
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                            ),
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -2600,6 +2625,8 @@ class _MonthlyScanStatsGrid extends StatelessWidget {
                 accentColor: AppColors.secondary,
                 label: AppStrings.t('Work days', 'วันทำงาน', 'Hari bekerja'),
                 value: '${stats.workDays}',
+                animatedNumber: stats.workDays,
+                formatAnimated: (v) => '$v',
                 subtitle: AppStrings.t(
                   stats.workDays == 1 ? 'day recorded' : 'days recorded',
                   'วันที่มีสแกน',
@@ -2620,6 +2647,8 @@ class _MonthlyScanStatsGrid extends StatelessWidget {
                     : AppColors.secondary,
                 label: AppStrings.t('Late', 'มาสาย', 'Lewat'),
                 value: stats.lateDays > 0 ? '${stats.lateDays}x' : '0',
+                animatedNumber: stats.lateDays,
+                formatAnimated: (v) => v > 0 ? '${v}x' : '0',
                 subtitle: stats.lateDays > 0
                     ? (AppStrings.isThai
                           ? '${stats.lateMinutes} นาที · แตะกรอง'
@@ -2650,6 +2679,8 @@ class _MonthlyScanStatsGrid extends StatelessWidget {
                 value: stats.earlyLeaveDays > 0
                     ? '${stats.earlyLeaveDays}x'
                     : '0',
+                animatedNumber: stats.earlyLeaveDays,
+                formatAnimated: (v) => v > 0 ? '${v}x' : '0',
                 subtitle: stats.earlyLeaveDays > 0
                     ? (AppStrings.isThai
                           ? '${stats.earlyLeaveMinutes} นาที · แตะกรอง'
@@ -2672,6 +2703,9 @@ class _MonthlyScanStatsGrid extends StatelessWidget {
                 value: stats.overtimeMinutes > 0
                     ? AppStrings.formatHoursMinutes(stats.overtimeMinutes)
                     : '0m',
+                animatedNumber: stats.overtimeMinutes,
+                formatAnimated: (v) =>
+                    v > 0 ? AppStrings.formatHoursMinutes(v) : '0m',
                 subtitle: stats.overtimeDays > 0
                     ? (AppStrings.isThai
                           ? '${stats.overtimeDays} วัน · แตะกรอง'
@@ -2698,6 +2732,8 @@ class _StatInsightTile extends StatelessWidget {
     required this.value,
     required this.subtitle,
     required this.selected,
+    this.animatedNumber,
+    this.formatAnimated,
     this.onTap,
   });
 
@@ -2707,6 +2743,8 @@ class _StatInsightTile extends StatelessWidget {
   final String value;
   final String subtitle;
   final bool selected;
+  final int? animatedNumber;
+  final String Function(int)? formatAnimated;
   final VoidCallback? onTap;
 
   @override
@@ -2754,17 +2792,39 @@ class _StatInsightTile extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 1),
-                    Text(
-                      value,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.neutral,
-                        fontFeatures: const [FontFeature.tabularFigures()],
+                    if (animatedNumber != null && formatAnimated != null)
+                      TweenAnimationBuilder<int>(
+                        tween: IntTween(begin: 0, end: animatedNumber!),
+                        duration:
+                            (MediaQuery.maybeDisableAnimationsOf(context) ??
+                                false)
+                            ? Duration.zero
+                            : const Duration(milliseconds: 320),
+                        curve: Curves.easeOutCubic,
+                        builder: (context, numVal, _) => Text(
+                          formatAnimated!(numVal),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.neutral,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      )
+                    else
+                      Text(
+                        value,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.neutral,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
                       ),
-                    ),
                     Text(
                       subtitle,
                       maxLines: 1,

@@ -501,12 +501,15 @@ class _TechnicianHistoryScreenState extends State<TechnicianHistoryScreen> {
                             ),
                           ),
                           const SizedBox(width: 2),
-                          Icon(
-                            isExpanded
-                                ? Icons.keyboard_arrow_up_rounded
-                                : Icons.keyboard_arrow_down_rounded,
-                            size: 18,
-                            color: AppColors.secondary,
+                          AnimatedRotation(
+                            turns: isExpanded ? 0.5 : 0.0,
+                            duration: const Duration(milliseconds: 200),
+                            curve: Curves.easeOutCubic,
+                            child: Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              size: 18,
+                              color: AppColors.secondary,
+                            ),
                           ),
                         ],
                       ),

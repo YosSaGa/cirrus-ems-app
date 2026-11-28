@@ -439,7 +439,11 @@ class TechnicianService {
   static String? _cachedTeamMemberId;
   static TechnicianDashboardData? lastDashboardData;
 
-  static void clearCachedDashboard() => lastDashboardData = null;
+  static void clearCachedDashboard() {
+    lastDashboardData = null;
+    _cachedTeamMemberUserId = null;
+    _cachedTeamMemberId = null;
+  }
 
   /// Matches the signed-in user against `GET /team-members` so we know their
   /// `hr.team_members.id` even when it differs from `core.users.id`.
@@ -2107,6 +2111,7 @@ class TechnicianService {
   static Future<Map<String, dynamic>> submitReport({
     required String sessionId,
     required String workDescription,
+    String? jobStatusAtCheckout,
     String workType = 'service',
     String? findings,
     String? recommendations,
@@ -2177,11 +2182,18 @@ class TechnicianService {
             nestRes.statusCode < 500 &&
             sessionId.isNotEmpty &&
             errText.contains('confirm the job status')) {
+          if (jobStatusAtCheckout != 'completed' &&
+              jobStatusAtCheckout != 'in_progress') {
+            throw TechnicianApiException(
+              statusCode: nestRes.statusCode,
+              message: 'Unable to confirm the job status. Refresh the session and try again.',
+            );
+          }
           await _confirmJobStatusViaNestApi(
             client: client,
             headers: headers,
             sessionId: sessionId,
-            jobStatus: 'completed',
+            jobStatus: jobStatusAtCheckout!,
           );
           nestRes = await client
               .post(

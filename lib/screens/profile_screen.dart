@@ -643,18 +643,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       );
 
-      final stopwatch = Stopwatch()..start();
-      final switched = await AuthService.switchToAccount(selected);
-      if (!reducedMotion) {
-        final remaining = 650 - stopwatch.elapsedMilliseconds;
-        if (remaining > 0) {
-          await Future<void>.delayed(Duration(milliseconds: remaining));
+      var dialogClosed = false;
+      void closeSwitchDialog() {
+        if (!dialogClosed && mounted && rootNav.canPop()) {
+          dialogClosed = true;
+          rootNav.pop();
         }
       }
-      if (!mounted) return;
-      if (rootNav.canPop()) {
-        rootNav.pop();
+
+      var switched = false;
+      try {
+        final stopwatch = Stopwatch()..start();
+        switched = await AuthService.switchToAccount(selected);
+        if (!reducedMotion) {
+          final remaining = 650 - stopwatch.elapsedMilliseconds;
+          if (remaining > 0) {
+            await Future<void>.delayed(Duration(milliseconds: remaining));
+          }
+        }
+      } catch (e) {
+        closeSwitchDialog();
+        if (!mounted) return;
+        setState(() => _loggingOut = false);
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(
+            SnackBar(
+              behavior: SnackBarBehavior.floating,
+              content: Text(AppStrings.friendlyError(e)),
+            ),
+          );
+        return;
       }
+      if (!mounted) return;
+      closeSwitchDialog();
       if (switched) {
         Navigator.of(context).pushAndRemoveUntil(
           sessionTransition(context, const MainShell()),
@@ -736,9 +758,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           techWarning ??
               (hasPending
                   ? AppStrings.t(
-                      'You have a pending check-in waiting to be sent. Logging out will discard it. Continue?',
-                      'คุณมีรายการลงเวลาที่รอส่งอยู่ หากออกจากระบบรายการค้างนี้จะถูกลบ ต้องการออกจากระบบใช่หรือไม่?',
-                      'Anda mempunyai daftar masuk tertunda. Log keluar akan membuangnya. Teruskan?',
+                      'You have a pending check-in. Sign in to this account again to retry it.',
+                      'คุณมีรายการลงเวลาที่รอส่ง กรุณาเข้าสู่บัญชีนี้อีกครั้งเพื่อส่งรายการ',
+                      'Anda mempunyai daftar masuk tertunda. Log masuk semula ke akaun ini untuk mencuba lagi.',
                     )
                   : AppStrings.t(
                       'Are you sure you want to sign out of your account?',

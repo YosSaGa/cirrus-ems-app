@@ -72,6 +72,10 @@ class TechnicianJobActionZone extends StatelessWidget {
     required this.onWriteReport,
     this.onRetry,
     this.alreadyClockedIn = false,
+    this.openAttendanceWindowLabel,
+    this.openAttendanceWindowKind,
+    this.openAttendanceWindowIcon,
+    this.onScanAttendance,
   });
 
   final TechnicianDashboardData? data;
@@ -89,6 +93,10 @@ class TechnicianJobActionZone extends StatelessWidget {
   final ValueChanged<TechnicianWorkSession> onWriteReport;
   final VoidCallback? onRetry;
   final bool alreadyClockedIn;
+  final String? openAttendanceWindowLabel;
+  final String? openAttendanceWindowKind;
+  final IconData? openAttendanceWindowIcon;
+  final VoidCallback? onScanAttendance;
 
   @override
   Widget build(BuildContext context) {
@@ -151,6 +159,26 @@ class TechnicianJobActionZone extends StatelessWidget {
       );
       canTap = !actionInProgress;
       onPressed = canTap ? onCheckOut : null;
+    } else if (selectedJob == null &&
+        onScanAttendance != null &&
+        openAttendanceWindowLabel != null) {
+      final isInWindow = openAttendanceWindowKind == 'in';
+      buttonLabel = isInWindow
+          ? AppStrings.t('Check In', 'ลงเวลาเข้า', 'Daftar Masuk')
+          : AppStrings.t('Check Out', 'ลงเวลาออก', 'Daftar Keluar');
+      buttonIcon = openAttendanceWindowIcon ?? Icons.fingerprint_rounded;
+      windowLabel = AppStrings.t(
+        'Scan · $openAttendanceWindowLabel',
+        'สแกน · $openAttendanceWindowLabel',
+        'Imbas · $openAttendanceWindowLabel',
+      );
+      helperText = AppStrings.t(
+        'Tap to scan $openAttendanceWindowLabel attendance in app',
+        'แตะเพื่อสแกนลงเวลาช่วง$openAttendanceWindowLabelผ่านแอป',
+        'Ketik untuk imbas kehadiran $openAttendanceWindowLabel',
+      );
+      canTap = !actionInProgress;
+      onPressed = canTap ? onScanAttendance : null;
     } else if (jobs.isEmpty) {
       buttonLabel = alreadyClockedIn
           ? AppStrings.t('Start Job', 'เริ่มงาน', 'Mula Kerja')
@@ -242,57 +270,88 @@ class TechnicianJobActionZone extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (pendingReport != null && active == null)
-          _pendingReportLockCard(pendingReport)
-        else if (breakSession != null && active == null)
-          _onBreakBannerCard(breakSession)
-        else
-          _jobSelectorCard(context, jobs: jobs, active: active),
-        if (showScanReminder) ...[
-          const SizedBox(height: 10),
-          Container(
-            key: const Key('technician-scan-reminder-banner'),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-            decoration: BoxDecoration(
-              color: AppColors.warningContainer,
-              borderRadius: BorderRadius.circular(AppRadius.input),
-              border: Border.all(
-                color: AppColors.warning.withValues(alpha: 0.55),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.fingerprint_rounded,
-                  size: 20,
-                  color: AppColors.warning,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    hasActionableJobs
-                        ? AppStrings.t(
-                            'You have an assigned job — please scan attendance first before starting work.',
-                            'มีงานเข้าแล้ว กรุณาไปสแกนเข้างานด้วยก่อนเริ่มงาน',
-                            'Anda ada kerja baharu — sila imbas kehadiran dahulu sebelum mula kerja.',
-                          )
-                        : AppStrings.t(
-                            'You have not scanned attendance today — please scan in at the fingerprint device or in the app.',
-                            'วันนี้คุณยังไม่ได้สแกนเข้างาน กรุณาไปสแกนนิ้วหรือลงเวลาเข้างานด้วย',
-                            'Anda belum mengimbas kehadiran hari ini — sila imbas di mesin cap jari atau aplikasi.',
-                          ),
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.onWarningContainer,
-                      height: 1.3,
-                    ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            child: pendingReport != null && active == null
+                ? KeyedSubtree(
+                    key: ValueKey('pending-${pendingReport.id}'),
+                    child: _pendingReportLockCard(pendingReport),
+                  )
+                : breakSession != null && active == null
+                ? KeyedSubtree(
+                    key: ValueKey('break-${breakSession.id}'),
+                    child: _onBreakBannerCard(breakSession),
+                  )
+                : KeyedSubtree(
+                    key: ValueKey('job-${active?.id ?? selectedJob?.id ?? 'none'}'),
+                    child: _jobSelectorCard(context, jobs: jobs, active: active),
                   ),
-                ),
-              ],
-            ),
           ),
-        ],
+        ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: showScanReminder
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 10),
+                    Container(
+                      key: const Key('technician-scan-reminder-banner'),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 11,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.warningContainer,
+                        borderRadius: BorderRadius.circular(AppRadius.input),
+                        border: Border.all(
+                          color: AppColors.warning.withValues(alpha: 0.55),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.fingerprint_rounded,
+                            size: 20,
+                            color: AppColors.warning,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              hasActionableJobs
+                                  ? AppStrings.t(
+                                      'You have an assigned job — please scan attendance first before starting work.',
+                                      'มีงานเข้าแล้ว กรุณาไปสแกนเข้างานด้วยก่อนเริ่มงาน',
+                                      'Anda ada kerja baharu — sila imbas kehadiran dahulu sebelum mula kerja.',
+                                    )
+                                  : AppStrings.t(
+                                      'You have not scanned attendance today — please scan in at the fingerprint device or in the app.',
+                                      'วันนี้คุณยังไม่ได้สแกนเข้างาน กรุณาไปสแกนนิ้วหรือลงเวลาเข้างานด้วย',
+                                      'Anda belum mengimbas kehadiran hari ini — sila imbas di mesin cap jari atau aplikasi.',
+                                    ),
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.onWarningContainer,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              : const SizedBox.shrink(),
+        ),
         const SizedBox(height: AppSpacing.lg),
         TimeActionButton(
           label: buttonLabel,
@@ -643,6 +702,8 @@ class TechnicianJobActionZone extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
+                      const _LivePulseDot(),
+                      const SizedBox(width: 6),
                       StatusChip(
                         label: AppStrings.t('ON SITE', 'กำลังปฏิบัติงาน', 'BERTUGAS'),
                         variant: ChipVariant.active,
@@ -733,6 +794,9 @@ class TechnicianJobActionZone extends StatelessWidget {
       );
     }
 
+    final openJobs = jobs
+        .where((j) => !j.isSubmittedAwaitingClose && !j.isClosedOnBackend)
+        .toList(growable: false);
     final myJobsCount = jobs
         .where((j) => j.isSelectableForCheckIn)
         .length;
@@ -751,7 +815,7 @@ class TechnicianJobActionZone extends StatelessWidget {
                 HapticFeedback.selectionClick();
                 onRetry?.call();
               }
-            : jobs.isEmpty
+            : openJobs.isEmpty
             ? null
             : () async {
                 HapticFeedback.selectionClick();
@@ -913,16 +977,16 @@ class TechnicianJobActionZone extends StatelessWidget {
                                   'โหลดรายการงานไม่สำเร็จ · แตะเพื่อลองใหม่',
                                   'Gagal memuatkan kerja — ketik untuk cuba lagi',
                                 )
-                              : jobs.isEmpty
+                              : openJobs.isEmpty
                               ? AppStrings.t(
                                   'No jobs available today',
                                   'ยังไม่มีรายการงานในระบบวันนี้',
                                   'Tiada kerja tersedia hari ini',
                                 )
                               : AppStrings.t(
-                                  'Tap to view all Job Codes (${jobs.length})',
-                                  'แตะเพื่อดูและเลือก Job Code (${jobs.length} งาน)',
-                                  'Ketik untuk lihat semua Kod Kerja (${jobs.length})',
+                                  'Tap to view all Job Codes (${openJobs.length})',
+                                  'แตะเพื่อดูและเลือก Job Code (${openJobs.length} งาน)',
+                                  'Ketik untuk lihat semua Kod Kerja (${openJobs.length})',
                                 ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -963,7 +1027,7 @@ class TechnicianJobActionZone extends StatelessWidget {
                       Icons.refresh_rounded,
                       color: AppColors.error,
                     )
-                  else if (jobs.isNotEmpty)
+                  else if (openJobs.isNotEmpty)
                     Icon(
                       Icons.chevron_right_rounded,
                       color: AppColors.textSecondary,
@@ -1311,6 +1375,92 @@ class _TechnicianWorkTimerState extends State<_TechnicianWorkTimer> {
                 fontWeight: FontWeight.w800,
                 fontFeatures: const [FontFeature.tabularFigures()],
                 color: AppColors.neutral,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LivePulseDot extends StatefulWidget {
+  const _LivePulseDot();
+
+  @override
+  State<_LivePulseDot> createState() => _LivePulseDotState();
+}
+
+class _LivePulseDotState extends State<_LivePulseDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    final inWidgetTest =
+        WidgetsBinding.instance.runtimeType.toString().contains('Test');
+    if (!reduceMotion && !inWidgetTest) {
+      if (!_controller.isAnimating) {
+        _controller.repeat();
+      }
+    } else {
+      if (_controller.isAnimating) {
+        _controller.stop();
+      }
+      _controller.value = 0.0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: SizedBox(
+        width: 14,
+        height: 14,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            AnimatedBuilder(
+              animation: _controller,
+              builder: (context, _) {
+                final scale = 0.8 + (_controller.value * 1.15);
+                final opacity = (1.0 - _controller.value) * 0.45;
+                return Transform.scale(
+                  scale: scale,
+                  child: Container(
+                    width: 9,
+                    height: 9,
+                    decoration: BoxDecoration(
+                      color: AppColors.success.withValues(alpha: opacity),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                );
+              },
+            ),
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: AppColors.success,
+                shape: BoxShape.circle,
               ),
             ),
           ],

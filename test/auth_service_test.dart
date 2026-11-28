@@ -60,6 +60,62 @@ void main() {
     AuthService.authRequestTimeout = const Duration(seconds: 10);
   });
 
+  test('switch preserves the current session and saved token on server failure', () async {
+    final account = RecentAccount(
+      username: 'other',
+      name: 'Other',
+      lastUsedAt: DateTime.now(),
+      savedToken: 'other-token',
+    );
+    SharedPreferences.setMockInitialValues({
+      _tokenKey: 'current-token',
+      'ems.recentAccounts': jsonEncode([account.toJson()]),
+    });
+    _mock((request) async {
+      expect(request.headers['Authorization'], 'Bearer other-token');
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(_tokenKey), 'current-token');
+      return _json({'message': 'unavailable'}, 503);
+    });
+
+    await expectLater(AuthService.switchToAccount(account), throwsException);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(_tokenKey), 'current-token');
+    expect((await AuthService.getRecentAccounts()).single.savedToken, 'other-token');
+  });
+
+  test('expired switch token is cleared only after an unauthorized response', () async {
+    final account = RecentAccount(
+      username: 'other',
+      name: 'Other',
+      lastUsedAt: DateTime.now(),
+      savedToken: 'expired-token',
+    );
+    SharedPreferences.setMockInitialValues({
+      _tokenKey: 'current-token',
+      'ems.recentAccounts': jsonEncode([account.toJson()]),
+    });
+    _mock((_) async => _json({}, 401));
+
+    expect(await AuthService.switchToAccount(account), isFalse);
+    expect((await SharedPreferences.getInstance()).getString(_tokenKey), 'current-token');
+    expect((await AuthService.getRecentAccounts()).single.savedToken, isNull);
+  });
+
+  test('unauthorized session restoration preserves pending attendance', () async {
+    const pendingKey = 'ems.pendingAttendanceRequest.user-1';
+    SharedPreferences.setMockInitialValues({
+      _tokenKey: 'expired-token',
+      'ems.user': jsonEncode({'id': 'user-1'}),
+      pendingKey: 'pending-record',
+    });
+    AuthService.debugIsWebOverride = false;
+    _mock((_) async => _json({}, 401));
+
+    expect((await AuthService.checkSession()).status, SessionRestorationStatus.unauthenticated);
+    expect((await SharedPreferences.getInstance()).getString(pendingKey), 'pending-record');
+  });
+
   group('checkSession — Android (task §8 Android scenarios 1-6)', () {
     setUp(() => AuthService.debugIsWebOverride = false);
 

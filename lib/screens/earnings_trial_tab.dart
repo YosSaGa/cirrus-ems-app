@@ -21,7 +21,7 @@ class EarningsTrialTab extends StatefulWidget {
 
 class _EarningsTrialTabState extends State<EarningsTrialTab>
     with AutomaticKeepAliveClientMixin {
-  DateTime _month = DateTime(bangkokNow().year, bangkokNow().month);
+  PayrollCycle _cycle = PayrollCycle.forDate(bangkokNow());
   bool _busy = false;
   bool _noScans = false;
   String? _error;
@@ -92,7 +92,13 @@ class _EarningsTrialTabState extends State<EarningsTrialTab>
       }
       _payrollItems = cfg.items;
       if (rateChanged && _estimate != null) {
-        _estimate = calculateScanPay(_lastScans, _month, _activePaySettings);
+        _estimate = calculateScanPay(
+          _lastScans,
+          DateTime(_cycle.year, _cycle.month),
+          _activePaySettings,
+          periodStart: _cycle.start,
+          periodEnd: _cycle.end,
+        );
       }
     });
   }
@@ -112,7 +118,13 @@ class _EarningsTrialTabState extends State<EarningsTrialTab>
       _baseSalary = parsedSalary;
       _startDate = user['startDate']?.toString();
       if (salaryChanged && _estimate != null) {
-        _estimate = calculateScanPay(_lastScans, _month, _activePaySettings);
+        _estimate = calculateScanPay(
+          _lastScans,
+          DateTime(_cycle.year, _cycle.month),
+          _activePaySettings,
+          periodStart: _cycle.start,
+          periodEnd: _cycle.end,
+        );
       }
     });
   }
@@ -138,7 +150,7 @@ class _EarningsTrialTabState extends State<EarningsTrialTab>
 
   Future<void> _calculate() async {
     if (_busy) return;
-    final period = _month;
+    final period = _cycle;
     setState(() {
       _busy = true;
       _error = null;
@@ -147,39 +159,61 @@ class _EarningsTrialTabState extends State<EarningsTrialTab>
     });
     try {
       final scans = await AttendanceService.getMyScans(
-        from: period,
-        to: DateTime(period.year, period.month + 1, 0),
+        from: period.start,
+        to: period.end,
       );
-      if (!mounted || period != _month) return;
-      final result = calculateScanPay(scans, period, _activePaySettings);
+      if (!mounted || period != _cycle) return;
+      final result = calculateScanPay(
+        scans,
+        DateTime(period.year, period.month),
+        _activePaySettings,
+        periodStart: period.start,
+        periodEnd: period.end,
+      );
       setState(() {
         _lastScans = scans;
         _noScans = scans.isEmpty;
         _estimate = result;
       });
     } catch (error) {
-      if (mounted && period == _month) {
+      if (mounted && period == _cycle) {
         setState(() => _error = 'Could not read scans: $error');
       }
     } finally {
-      if (mounted && period == _month) setState(() => _busy = false);
+      if (mounted && period == _cycle) setState(() => _busy = false);
     }
   }
 
   void _changeMonth(int delta) {
-    setState(() => _month = DateTime(_month.year, _month.month + delta));
+    setState(() => _cycle = _cycle.shift(delta));
     _calculate();
   }
+
+  String _shortDayMonth(DateTime d) =>
+      '${d.day} ${AppStrings.monthShort(d.month)}';
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
     final now = bangkokNow();
-    final ended = _month.isBefore(DateTime(now.year, now.month));
+    final ended = _cycle.hasEnded(now);
+    final daysUntilPayday = _cycle.daysUntilPayday(now);
     final text = Theme.of(context).textTheme;
-    final period = AppStrings.formatMonthYear(_month.year, _month.month);
+    final period = AppStrings.formatMonthYear(_cycle.year, _cycle.month);
     final periodShort =
-        '${_month.month.toString().padLeft(2, '0')}/${(_month.year % 100).toString().padLeft(2, '0')}';
+        '${_cycle.month.toString().padLeft(2, '0')}/${(_cycle.year % 100).toString().padLeft(2, '0')}';
+    final cycleRangeText =
+        '${_shortDayMonth(_cycle.start)} – ${_shortDayMonth(_cycle.end)}';
+    final paydayText = _shortDayMonth(_cycle.payday);
+    final countdownText = daysUntilPayday > 0
+        ? AppStrings.t(
+            'in ${daysUntilPayday}d',
+            'อีก $daysUntilPayday วัน',
+            'dalam ${daysUntilPayday}h',
+          )
+        : daysUntilPayday == 0
+        ? AppStrings.t('Today', 'วันนี้', 'Hari ini')
+        : AppStrings.t('Paid', 'จ่ายแล้ว', 'Dibayar');
     final estimate = _estimate;
     return RefreshIndicator(
       color: AppColors.secondary,
@@ -251,6 +285,76 @@ class _EarningsTrialTabState extends State<EarningsTrialTab>
                                 icon: const Icon(Icons.chevron_right_rounded),
                               ),
                             ],
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                          child: Container(
+                            key: const Key('payroll-cycle-banner'),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 7,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.pill,
+                              ),
+                              border: Border.all(color: AppColors.cardBorder),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.event_repeat_rounded,
+                                  size: 15,
+                                  color: AppColors.secondary,
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    AppStrings.t(
+                                      '$cycleRangeText · Payday $paydayText',
+                                      'รอบ $cycleRangeText · เงินเข้า $paydayText',
+                                      '$cycleRangeText · Gaji $paydayText',
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.neutral,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: daysUntilPayday == 0
+                                        ? AppColors.successContainer
+                                        : AppColors.secondary.withValues(
+                                            alpha: 0.14,
+                                          ),
+                                    borderRadius: BorderRadius.circular(
+                                      AppRadius.pill,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    countdownText,
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: daysUntilPayday == 0
+                                          ? AppColors.success
+                                          : AppColors.neutral,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                         Padding(

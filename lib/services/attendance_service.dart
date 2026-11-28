@@ -671,9 +671,7 @@ class AttendanceService {
   ) async {
     final userId = pending['userId'] as String;
     final clientRequestId = pending['clientRequestId'] as String;
-    final payload = Map<String, dynamic>.from(
-      pending['payload'] as Map<String, dynamic>,
-    );
+    final payload = Map<String, dynamic>.from(pending['payload'] as Map);
 
     final response = await _client.post(
       Uri.parse('$_baseUrl/events'),
@@ -1096,7 +1094,13 @@ class AttendanceService {
               'file',
               photo.bytes,
               filename: photo.fileName,
-              contentType: MediaType.parse(photo.mimeType),
+              contentType: () {
+                try {
+                  return MediaType.parse(photo.mimeType);
+                } catch (_) {
+                  return MediaType('image', 'jpeg');
+                }
+              }(),
             ),
           );
 

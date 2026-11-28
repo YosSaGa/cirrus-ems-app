@@ -116,6 +116,7 @@ Attendance ส่งรูปและ event ผ่าน `AttendanceService` �
 | `pay_wallet_card.dart` | การ์ดประมาณการค่าแรงสไตล์ Wallet Card พร้อม EMV chip, รหัสพนักงานจริง และแอนิเมชันแตะพลิก 3D |
 | `live_clock.dart` | นาฬิกาเวลา Bangkok สำหรับแสดงผล |
 | `time_action_button.dart` | ปุ่มวงกลมลงเวลา |
+| `job_completed_dialog.dart` | หน้าต่างแสดงความยินดีพร้อม confetti burst และไอคอนเด้งเมื่อจบงานแบบ `completed` |
 | `primary_cta_button.dart`, `primary_action_button.dart` | ปุ่มหลักและปุ่มรองที่ใช้ร่วมกัน |
 | `status_banner.dart`, `status_chip.dart`, `empty_note.dart` | แสดงสถานะ ข้อผิดพลาด และข้อมูลว่าง |
 | `detail_row.dart` | แถวข้อมูลรายละเอียด |

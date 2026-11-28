@@ -47,6 +47,7 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
 
   String _workType = 'service';
   bool _submitting = false;
+  double _uploadProgress = 0.0;
   String? _submitStageLabel;
   String? _error;
   Timer? _draftDebounce;
@@ -520,11 +521,12 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !mounted || _submitting) return;
 
     HapticFeedback.mediumImpact();
     setState(() {
       _submitting = true;
+      _uploadProgress = _photos.isEmpty ? 0.45 : 0.08;
       _error = null;
       _submitStageLabel = _photos.isNotEmpty
           ? AppStrings.t(
@@ -561,10 +563,16 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
             );
         _uploadedPhotoKeys[photo] = storageKey;
         uploadedPhotoKeys.add(storageKey);
+        if (mounted) {
+          setState(() {
+            _uploadProgress = (i + 1) / (_photos.length + 1);
+          });
+        }
       }
 
       if (mounted) {
         setState(() {
+          _uploadProgress = 0.92;
           _submitStageLabel = AppStrings.t(
             'Submitting Report...',
             'กำลังส่งรายงาน...',
@@ -575,6 +583,7 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
 
       await TechnicianService.submitReport(
         sessionId: widget.session?.id ?? '',
+        jobStatusAtCheckout: widget.session?.jobStatusAtCheckout,
         workOrderId: widget.job?.id ?? widget.session?.jobId,
         projectId: widget.job?.projectId,
         workDescription: () {
@@ -603,6 +612,7 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
       setState(() {
         _error = AppStrings.friendlyError(e);
         _submitting = false;
+        _uploadProgress = 0.0;
         _submitStageLabel = null;
       });
     }
@@ -945,41 +955,60 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
                                 itemCount: _photos.length,
                                 separatorBuilder: (_, _) =>
                                     const SizedBox(width: 10),
-                                itemBuilder: (_, i) => Stack(
-                                  clipBehavior: Clip.none,
-                                  children: [
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(14),
-                                      child: Image.memory(
-                                        _photos[i].bytes,
-                                        width: 92,
-                                        height: 92,
-                                        fit: BoxFit.cover,
-                                      ),
+                                itemBuilder: (_, i) => TweenAnimationBuilder<double>(
+                                  key: ValueKey(_photos[i]),
+                                  tween: Tween<double>(begin: 0.82, end: 1.0),
+                                  duration:
+                                      (MediaQuery.maybeDisableAnimationsOf(
+                                            context,
+                                          ) ??
+                                          false)
+                                      ? Duration.zero
+                                      : const Duration(milliseconds: 220),
+                                  curve: Curves.easeOutBack,
+                                  builder: (context, value, child) => Opacity(
+                                    opacity: value.clamp(0.0, 1.0),
+                                    child: Transform.scale(
+                                      scale: value,
+                                      child: child,
                                     ),
-                                    Positioned(
-                                      top: 4,
-                                      right: 4,
-                                      child: GestureDetector(
-                                        onTap: () => _removePhoto(i),
-                                        child: Container(
-                                          width: 24,
-                                          height: 24,
-                                          decoration: BoxDecoration(
-                                            color: Colors.black.withValues(
-                                              alpha: 0.7,
+                                  ),
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(14),
+                                        child: Image.memory(
+                                          _photos[i].bytes,
+                                          width: 92,
+                                          height: 92,
+                                          fit: BoxFit.cover,
+                                        ),
+                                      ),
+                                      Positioned(
+                                        top: 4,
+                                        right: 4,
+                                        child: GestureDetector(
+                                          onTap: () => _removePhoto(i),
+                                          child: Container(
+                                            width: 24,
+                                            height: 24,
+                                            decoration: BoxDecoration(
+                                              color: Colors.black.withValues(
+                                                alpha: 0.7,
+                                              ),
+                                              shape: BoxShape.circle,
                                             ),
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: const Icon(
-                                            Icons.close_rounded,
-                                            size: 14,
-                                            color: Colors.white,
+                                            child: const Icon(
+                                              Icons.close_rounded,
+                                              size: 14,
+                                              color: Colors.white,
+                                            ),
                                           ),
                                         ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -1104,40 +1133,65 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
               child: SizedBox(
                 width: double.infinity,
                 height: 50,
-                child: FilledButton.icon(
-                  key: const Key('submit-technician-report-button'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.neutral,
-                    foregroundColor: AppColors.onNeutral,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
-                    ),
-                  ),
-                  onPressed: _submitting ? null : _submit,
-                  icon: _submitting
-                      ? SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: AppColors.onNeutral,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      FilledButton.icon(
+                        key: const Key('submit-technician-report-button'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.neutral,
+                          foregroundColor: AppColors.onNeutral,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.pill),
                           ),
-                        )
-                      : const Icon(Icons.send_rounded, size: 18),
-                  label: Text(
-                    _submitting
-                        ? (_submitStageLabel ??
-                              AppStrings.t(
-                                'Submitting Report...',
-                                'กำลังส่งรายงาน...',
-                                'Menghantar Laporan...',
-                              ))
-                        : AppStrings.t(
-                            'Submit Work Report',
-                            'ส่งรายงานการทำงาน',
-                            'Hantar Laporan Kerja',
+                        ),
+                        onPressed: _submitting ? null : _submit,
+                        icon: _submitting
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.onNeutral,
+                                ),
+                              )
+                            : const Icon(Icons.send_rounded, size: 18),
+                        label: Text(
+                          _submitting
+                              ? (_submitStageLabel ??
+                                    AppStrings.t(
+                                      'Submitting Report...',
+                                      'กำลังส่งรายงาน...',
+                                      'Menghantar Laporan...',
+                                    ))
+                              : AppStrings.t(
+                                  'Submit Work Report',
+                                  'ส่งรายงานการทำงาน',
+                                  'Hantar Laporan Kerja',
+                                ),
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      if (_submitting)
+                        IgnorePointer(
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: AnimatedFractionallySizedBox(
+                              duration: const Duration(milliseconds: 260),
+                              curve: Curves.easeOutCubic,
+                              widthFactor: _uploadProgress.clamp(0.0, 1.0),
+                              heightFactor: 1.0,
+                              child: Container(
+                                color: AppColors.secondary.withValues(
+                                  alpha: 0.28,
+                                ),
+                              ),
+                            ),
                           ),
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                    ],
                   ),
                 ),
               ),

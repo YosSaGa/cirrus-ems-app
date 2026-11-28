@@ -2,7 +2,7 @@
 
 แอปลงเวลาทำงานและติดตามงานภาคสนามสำหรับพนักงานและช่างของ Cirrus Group (Flutter / Dart) เชื่อมต่อกับ EMS Backend ภายนอก
 
-อัปเดตล่าสุด: 27 พฤศจิกายน 2026
+อัปเดตล่าสุด: 28 พฤศจิกายน 2026
 
 ---
 
@@ -16,6 +16,10 @@
 - **Settings:** 3 ธีม (Default / Pure White / Obsidian Black), 3 ภาษา (EN / TH / MY), ขนาดตัวอักษร 4 ระดับ (ถึง XL), Device & Connection Check, Haptic Feedback / New Job Alerts และ Storage & Cache
 
 ---
+
+การสลับบัญชีตรวจ token ของบัญชีปลายทางก่อนเปลี่ยน session และเก็บ token ไว้เมื่อเครือข่ายขัดข้อง ส่วนรายการลงเวลาที่ยังส่งไม่สำเร็จเก็บแยกตามผู้ใช้เพื่อกลับมาส่งอีกครั้งหลังเข้าสู่บัญชีเดิม
+
+Local EMS Bridge ใน `.tools/ems_local_server.js` รับการเชื่อมต่อเฉพาะ localhost ใช้รหัสผ่านจากฐานข้อมูล และลงลายเซ็น token ด้วยกุญแจชั่วคราวของ process การรีสตาร์ต Bridge ทำให้ token ที่ Bridge ออกก่อนหน้าใช้ไม่ได้
 
 ## Tech Stack
 

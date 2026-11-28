@@ -42,8 +42,11 @@ void main() {
     'fixed daily wage pays verified regular hours and keeps bonus time separate',
     (tester) async {
       final now = bangkokNow();
-      final date = calendarDate(DateTime(now.year, now.month, 2));
-      final incompleteDate = calendarDate(DateTime(now.year, now.month, 3));
+      final cycle = PayrollCycle.forDate(now);
+      final date = calendarDate(cycle.start);
+      final incompleteDate = calendarDate(
+        cycle.start.add(const Duration(days: 1)),
+      );
       final scans = [
         {
           'windowCode': 'morning_in',
@@ -201,7 +204,7 @@ void main() {
       'ems.authToken': 'test-token',
     });
     final now = bangkokNow();
-    final date = calendarDate(DateTime(now.year, now.month, 2));
+    final date = calendarDate(PayrollCycle.forDate(now).start);
     final scans = [
       {
         'windowCode': 'morning_in',

@@ -189,4 +189,56 @@ void main() {
       throwsArgumentError,
     );
   });
+
+  test('PayrollCycle resolves cutoff 25th (26 prev -> 25 curr) and payday 5th', () {
+    final onCutoff = PayrollCycle.forDate(DateTime(2026, 11, 25));
+    expect(onCutoff.year, 2026);
+    expect(onCutoff.month, 11);
+    expect(onCutoff.start, DateTime(2026, 10, 26));
+    expect(onCutoff.end, DateTime(2026, 11, 25));
+    expect(onCutoff.payday, DateTime(2026, 12, 5));
+    expect(onCutoff.hasEnded(DateTime(2026, 11, 25)), isFalse);
+    expect(onCutoff.hasEnded(DateTime(2026, 11, 26)), isTrue);
+
+    final afterCutoff = PayrollCycle.forDate(DateTime(2026, 11, 26));
+    expect(afterCutoff.year, 2026);
+    expect(afterCutoff.month, 12);
+    expect(afterCutoff.start, DateTime(2026, 11, 26));
+    expect(afterCutoff.end, DateTime(2026, 12, 25));
+    expect(afterCutoff.payday, DateTime(2027, 1, 5));
+
+    final yearRollover = PayrollCycle.forDate(DateTime(2026, 12, 26));
+    expect(yearRollover.year, 2027);
+    expect(yearRollover.month, 1);
+    expect(yearRollover.start, DateTime(2026, 12, 26));
+    expect(yearRollover.end, DateTime(2027, 1, 25));
+    expect(yearRollover.payday, DateTime(2027, 2, 5));
+  });
+
+  test('calculateScanPay with periodStart/periodEnd spans 26th to 25th inclusively', () {
+    final cycle = PayrollCycle.fromYearMonth(2026, 11);
+    final scans = [
+      // Excluded: Oct 25 (previous cycle)
+      scan('morning_in', '2026-10-25T08:00:00+07:00', date: '2026-10-25'),
+      scan('leave', '2026-10-25T17:00:00+07:00', date: '2026-10-25'),
+      // Included: Oct 26 (start of Nov cycle) -> 4h
+      scan('morning_in', '2026-10-26T08:00:00+07:00', date: '2026-10-26'),
+      scan('lunch_out', '2026-10-26T12:00:00+07:00', date: '2026-10-26'),
+      // Included: Nov 25 (end of Nov cycle) -> 4h
+      scan('morning_in', '2026-11-25T08:00:00+07:00', date: '2026-11-25'),
+      scan('lunch_out', '2026-11-25T12:00:00+07:00', date: '2026-11-25'),
+      // Excluded: Nov 26 (next cycle)
+      scan('morning_in', '2026-11-26T08:00:00+07:00', date: '2026-11-26'),
+      scan('leave', '2026-11-26T17:00:00+07:00', date: '2026-11-26'),
+    ];
+    final result = calculateScanPay(
+      scans,
+      DateTime(cycle.year, cycle.month),
+      settings,
+      periodStart: cycle.start,
+      periodEnd: cycle.end,
+    );
+    expect(result.regularMinutes, 480);
+    expect(result.workDays, 2);
+  });
 }

@@ -48,7 +48,7 @@ void main() {
     'EarningsTrialTab uses employee base salary formula and opens PayCalculatorScreen',
     (tester) async {
       final now = bangkokNow();
-      final date = calendarDate(DateTime(now.year, now.month, 2));
+      final date = calendarDate(PayrollCycle.forDate(now).start);
       SharedPreferences.setMockInitialValues({
         'ems.user': jsonEncode({
           'id': 'salary-user',

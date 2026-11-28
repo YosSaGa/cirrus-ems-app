@@ -625,6 +625,7 @@ class _EmployeePayrollEditorScreenState
     final notesCtrl = TextEditingController(text: existing?.notes ?? '');
     var componentType = existing?.componentType ?? 'deduction';
     var calcMode = existing?.calcMode ?? presetCalcMode;
+    var saving = false;
     String? dialogError;
 
     // Warn when adding a duplicate preset/item code or name
@@ -764,7 +765,7 @@ class _EmployeePayrollEditorScreenState
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(dialogCtx).pop(false),
+              onPressed: saving ? null : () => Navigator.of(dialogCtx).pop(false),
               child: Text(AppStrings.t('Cancel', 'ยกเลิก')),
             ),
             FilledButton(
@@ -772,7 +773,10 @@ class _EmployeePayrollEditorScreenState
                 backgroundColor: AppColors.neutral,
                 foregroundColor: AppColors.onNeutral,
               ),
-              onPressed: () async {
+              onPressed: saving
+                  ? null
+                  : () async {
+                      if (saving) return;
                 final name = nameCtrl.text.trim();
                 final amt = double.tryParse(amountCtrl.text.trim());
                 final capText = capCtrl.text.trim();
@@ -815,6 +819,10 @@ class _EmployeePayrollEditorScreenState
                   );
                   return;
                 }
+                setDialogState(() {
+                  saving = true;
+                  dialogError = null;
+                });
                 try {
                   if (existing == null) {
                     final created = await PayrollService.addEmployeeItem(
@@ -856,6 +864,9 @@ class _EmployeePayrollEditorScreenState
                   }
                   if (dialogCtx.mounted) Navigator.of(dialogCtx).pop(true);
                 } catch (e) {
+                  if (dialogCtx.mounted) {
+                    setDialogState(() => saving = false);
+                  }
                   if (mounted) {
                     _showSnack(e.toString().replaceFirst('Exception: ', ''));
                   }

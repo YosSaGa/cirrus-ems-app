@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_client_factory.dart';
+import 'technician_service.dart';
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
@@ -251,14 +252,18 @@ class AuthService {
 
     switch (method) {
       case 'GET':
-        response = await _client.get(uri, headers: headers);
+        response = await _client
+            .get(uri, headers: headers)
+            .timeout(authRequestTimeout);
         break;
       case 'POST':
-        response = await _client.post(
-          uri,
-          headers: headers,
-          body: jsonEncode(body ?? <String, dynamic>{}),
-        );
+        response = await _client
+            .post(
+              uri,
+              headers: headers,
+              body: jsonEncode(body ?? <String, dynamic>{}),
+            )
+            .timeout(authRequestTimeout);
         break;
       default:
         throw Exception('Unsupported HTTP method: $method');
@@ -306,6 +311,7 @@ class AuthService {
   static Future<_TypedHttpResult> _typedRequest(
     String path, {
     bool authenticated = false,
+    String? tokenOverride,
   }) async {
     final headers = <String, String>{
       'Accept': 'application/json',
@@ -313,7 +319,7 @@ class AuthService {
     };
 
     if (authenticated) {
-      final token = await getToken();
+      final token = tokenOverride ?? await getToken();
       if (token != null && token.isNotEmpty) {
         headers['Authorization'] = 'Bearer $token';
       }
@@ -552,7 +558,7 @@ class AuthService {
             .toString()
             .trim();
     try {
-      await _request('POST', '/auth/logout');
+      await _request('POST', '/auth/logout', authenticated: true);
     } catch (_) {
       // Clear local session even if the server is unavailable.
     } finally {
@@ -563,37 +569,16 @@ class AuthService {
     }
   }
 
-  static const String _pendingAttendanceRequestKeyPrefix =
-      'ems.pendingAttendanceRequest';
-
-  static String _pendingAttendanceRequestKeyFor(String userId) =>
-      '$_pendingAttendanceRequestKeyPrefix.$userId';
-
-  /// Clears JWT + cached user data. Also removes this user's pending attendance key.
+  /// Clears JWT and cached user data.
   static Future<void> _clearLocalSession() async {
     final prefs = await SharedPreferences.getInstance();
-
-    String? userId;
-    final rawUser = prefs.getString(_userKey);
-    if (rawUser != null) {
-      try {
-        final decoded = jsonDecode(rawUser);
-        if (decoded is Map && decoded['id'] is String) {
-          userId = decoded['id'] as String;
-        }
-      } catch (_) {
-        // Malformed cache — skip pending-key removal only.
-      }
-    }
 
     await prefs.remove(_tokenKey);
     await prefs.remove(_userKey);
     await prefs.remove(_rolesKey);
     await prefs.remove(_permissionsKey);
+    TechnicianService.clearCachedDashboard();
 
-    if (userId != null) {
-      await prefs.remove(_pendingAttendanceRequestKeyFor(userId));
-    }
   }
 
   static Future<String?> getToken() async {
@@ -767,21 +752,38 @@ class AuthService {
       await clearRecentAccountToken(account.username);
       return false;
     }
+    final verification = await _typedRequest(
+      '/auth/me',
+      authenticated: true,
+      tokenOverride: account.savedToken,
+    );
+    if (verification.kind == _HttpOutcomeKind.unauthorized) {
+      await clearRecentAccountToken(account.username);
+      return false;
+    }
+    if (verification.kind != _HttpOutcomeKind.success) {
+      throw Exception(_connectionErrorMessage);
+    }
+    final verifiedUser = verification.body?['user'];
+    if (verifiedUser is! Map || verifiedUser['id'] == null) {
+      throw Exception(_connectionErrorMessage);
+    }
     final prefs = await SharedPreferences.getInstance();
     final prevToken = prefs.getString(_tokenKey);
     final prevUser = prefs.getString(_userKey);
     final prevRoles = prefs.getString(_rolesKey);
     final prevPerms = prefs.getString(_permissionsKey);
 
-    await prefs.setString(_tokenKey, account.savedToken!);
-    if (account.savedUser != null) {
-      await prefs.setString(_userKey, jsonEncode(account.savedUser));
-    }
-    await prefs.setString(_rolesKey, jsonEncode(account.savedRoles));
-    await prefs.setString(_permissionsKey, jsonEncode(account.savedPermissions));
-
     try {
-      await fetchMe();
+      await prefs.setString(_tokenKey, account.savedToken!);
+      if (account.savedUser != null) {
+        await prefs.setString(_userKey, jsonEncode(account.savedUser));
+      } else {
+        await prefs.remove(_userKey);
+      }
+      await prefs.setString(_rolesKey, jsonEncode(account.savedRoles));
+      await prefs.setString(_permissionsKey, jsonEncode(account.savedPermissions));
+      await _persistMeFields(verification.body!);
       final existing = await getRecentAccounts();
       final promoted = account.copyWith(lastUsedAt: DateTime.now());
       final updated = <RecentAccount>[
@@ -794,15 +796,31 @@ class AuthService {
         _recentAccountsKey,
         jsonEncode(updated.map((a) => a.toJson()).toList()),
       );
+      TechnicianService.clearCachedDashboard();
       return true;
     } catch (_) {
-      // Token expired or rejected — clear saved token and require password.
-      await clearRecentAccountToken(account.username);
-      if (prevToken != null) await prefs.setString(_tokenKey, prevToken);
-      if (prevUser != null) await prefs.setString(_userKey, prevUser);
-      if (prevRoles != null) await prefs.setString(_rolesKey, prevRoles);
-      if (prevPerms != null) await prefs.setString(_permissionsKey, prevPerms);
-      return false;
+      if (prevToken != null) {
+        await prefs.setString(_tokenKey, prevToken);
+      } else {
+        await prefs.remove(_tokenKey);
+      }
+      if (prevUser != null) {
+        await prefs.setString(_userKey, prevUser);
+      } else {
+        await prefs.remove(_userKey);
+      }
+      if (prevRoles != null) {
+        await prefs.setString(_rolesKey, prevRoles);
+      } else {
+        await prefs.remove(_rolesKey);
+      }
+      if (prevPerms != null) {
+        await prefs.setString(_permissionsKey, prevPerms);
+      } else {
+        await prefs.remove(_permissionsKey);
+      }
+      TechnicianService.clearCachedDashboard();
+      rethrow;
     }
   }
 

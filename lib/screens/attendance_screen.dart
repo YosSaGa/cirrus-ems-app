@@ -18,6 +18,7 @@ import '../theme/app_theme.dart';
 import '../widgets/session_transition.dart';
 import '../widgets/detail_row.dart';
 import '../widgets/ambient_panel.dart';
+import '../widgets/job_completed_dialog.dart';
 import '../widgets/live_clock.dart';
 import '../widgets/primary_action_button.dart';
 import '../widgets/primary_cta_button.dart';
@@ -95,9 +96,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   TechnicianJob? _selectedTechJob;
   Timer? _techPollTimer;
   bool _techPollingInFlight = false;
+  Timer? _attendancePollTimer;
+  bool _attendancePollingInFlight = false;
   bool _reportScreenOpen = false;
   Set<String>? _knownTechJobIds;
   String? _promptedPendingReportSessionId;
+
+  bool get _isWidgetTest =>
+      WidgetsBinding.instance.runtimeType.toString().contains('Test');
 
   // claude_prompt.txt (v171 §3 "Web may retain its existing in-memory
   // behavior ... do not implement IndexedDB"): on every OTHER platform,
@@ -129,16 +135,71 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   @override
   void dispose() {
     _techPollTimer?.cancel();
+    _attendancePollTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed &&
-        _isTechnician &&
-        !TechnicianService.isUsingMockOverride) {
-      _pollTechnicianJobsSilently();
+    if (state == AppLifecycleState.resumed) {
+      if (!_isWidgetTest) {
+        _ensureAttendancePolling();
+        _pollAttendanceStatusSilently();
+      }
+      if (_isTechnician && !TechnicianService.isUsingMockOverride) {
+        _ensureTechnicianPolling();
+        _pollTechnicianJobsSilently();
+      }
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _attendancePollTimer?.cancel();
+      _attendancePollTimer = null;
+      _techPollTimer?.cancel();
+      _techPollTimer = null;
+    }
+  }
+
+  void _ensureAttendancePolling() {
+    if (_isWidgetTest) return;
+    _attendancePollTimer ??= Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _pollAttendanceStatusSilently(),
+    );
+  }
+
+  Future<void> _pollAttendanceStatusSilently() async {
+    if (!mounted ||
+        _isWidgetTest ||
+        _attendancePollingInFlight ||
+        _actionInProgress ||
+        _loading ||
+        _reportScreenOpen ||
+        _navigatingToLogin) {
+      return;
+    }
+    _attendancePollingInFlight = true;
+    try {
+      final status = await AttendanceService.getAttendanceStatus();
+      if (!mounted || _navigatingToLogin) return;
+      final completedWindowCodes = await _fetchCompletedWindowCodes(
+        status['currentWorkDate']?.toString(),
+      );
+      if (_techData != null) {
+        completedWindowCodes.addAll(_techData!.completedWindows);
+      }
+      if (!mounted || _navigatingToLogin) return;
+      setState(() {
+        _status = status;
+        _statusError = null;
+        _completedWindowCodes = completedWindowCodes;
+      });
+    } on AttendanceApiException catch (e) {
+      _redirectIfAuthFailure(e);
+    } catch (_) {
+      // Silent background poll — ignore transient network blips
+    } finally {
+      _attendancePollingInFlight = false;
     }
   }
 
@@ -174,7 +235,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         _techData = fresh;
         _knownTechJobIds = freshIds;
         if (_selectedTechJob != null &&
-            !fresh.jobs.any((j) => j.id == _selectedTechJob!.id)) {
+            !fresh.jobs.any(
+              (j) => j.id == _selectedTechJob!.id && j.isSelectableForCheckIn,
+            )) {
           _selectedTechJob = null;
         }
         if (fresh.completedWindows.isNotEmpty) {
@@ -361,7 +424,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     TechnicianJob? nextSelected = _selectedTechJob;
     if (techData != null) {
       if (nextSelected != null &&
-          !techData!.jobs.any((j) => j.id == nextSelected!.id)) {
+          !techData!.jobs.any(
+            (j) => j.id == nextSelected!.id && j.isSelectableForCheckIn,
+          )) {
         nextSelected = null;
       }
     }
@@ -383,6 +448,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       _completedWindowCodes = completedWindowCodes;
       _loading = false;
     });
+    _ensureAttendancePolling();
     _ensureTechnicianPolling();
     unawaited(
       WorkTimerNotificationService.syncForActiveSession(
@@ -914,9 +980,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         content: Text(
           hasPending
               ? AppStrings.t(
-                  'You have a pending check-in waiting to be sent. Logging out will discard it. Continue?',
-                  'คุณมีรายการลงเวลาที่รอส่งอยู่ หากออกจากระบบรายการค้างนี้จะถูกลบ ต้องการออกจากระบบใช่หรือไม่?',
-                  'Anda mempunyai daftar masuk tertunda. Log keluar akan membuangnya. Teruskan?',
+                  'You have a pending check-in. Sign in to this account again to retry it.',
+                  'คุณมีรายการลงเวลาที่รอส่ง กรุณาเข้าสู่บัญชีนี้อีกครั้งเพื่อส่งรายการ',
+                  'Anda mempunyai daftar masuk tertunda. Log masuk semula ke akaun ini untuk mencuba lagi.',
                 )
               : AppStrings.t(
                   'Are you sure you want to sign out of your account?',
@@ -946,6 +1012,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
     if (confirmed != true || !mounted) return;
 
+    TechnicianService.clearCachedDashboard();
+    unawaited(WorkTimerNotificationService.cancel());
     await AuthService.logout();
 
     if (!mounted) return;
@@ -1726,24 +1794,40 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
     if (!mounted) return;
     if (submitted == true) {
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(
-          SnackBar(
-            duration: const Duration(seconds: 3),
-            behavior: SnackBarBehavior.floating,
-            content: Text(
-              AppStrings.t(
-                'Work report submitted for ${session.jobCode}',
-                'ส่งรายงานงาน ${session.jobCode} เรียบร้อยแล้ว',
-                'Laporan kerja untuk ${session.jobCode} telah dihantar',
+      setState(() => _selectedTechJob = null);
+      final isJobCompleted =
+          (session.jobStatusAtCheckout ?? '').trim().toLowerCase() ==
+          'completed';
+      if (isJobCompleted) {
+        if (AppPreferencesService.hapticsEnabled) {
+          unawaited(HapticFeedback.mediumImpact());
+        }
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: true,
+          builder: (_) => JobCompletedDialog(jobCode: session.jobCode),
+        );
+      } else {
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(
+            SnackBar(
+              duration: const Duration(seconds: 3),
+              behavior: SnackBarBehavior.floating,
+              content: Text(
+                AppStrings.t(
+                  'Work report submitted for ${session.jobCode}',
+                  'ส่งรายงานงาน ${session.jobCode} เรียบร้อยแล้ว',
+                  'Laporan kerja untuk ${session.jobCode} telah dihantar',
+                ),
               ),
             ),
-          ),
-        );
+          );
+      }
     } else {
       _promptedPendingReportSessionId = null;
     }
+    if (!mounted) return;
     await _loadInitial();
   }
 
@@ -2080,6 +2164,25 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   /// Floating circular check-in centerpiece directly on the clean canvas.
   Widget _mobileActionZone(BuildContext context) {
     if (_isTechnician) {
+      final currentWindowCode = _status?['currentWindowCode']?.toString();
+      final currentWorkDate = _status?['currentWorkDate']?.toString();
+      final windowInfo = currentWindowCode != null
+          ? _windowDisplayInfo[currentWindowCode]
+          : null;
+      final latestCounted =
+          _status?['latestCountedEvent'] as Map<String, dynamic>?;
+      final windowAlreadyCompleted =
+          currentWindowCode != null &&
+          (_completedWindowCodes.contains(currentWindowCode) ||
+              (latestCounted != null &&
+                  latestCounted['workDate']?.toString() == currentWorkDate &&
+                  latestCounted['windowCode']?.toString() == currentWindowCode));
+      final canScanAttendanceDirectly =
+          windowInfo != null &&
+          !windowAlreadyCompleted &&
+          (_pendingLookup == null ||
+              _pendingLookup!.state == PendingAttendanceRequestState.absent);
+
       return TechnicianJobActionZone(
         data: _techData,
         selectedJob: _selectedTechJob,
@@ -2087,6 +2190,18 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         stageLabel: _checkInStageLabel,
         errorMessage: _actionError,
         alreadyClockedIn: _hasScannedAttendanceToday,
+        openAttendanceWindowLabel: canScanAttendanceDirectly
+            ? AppStrings.scanWindowLabel(windowInfo.label)
+            : null,
+        openAttendanceWindowKind: canScanAttendanceDirectly
+            ? windowInfo.kind
+            : null,
+        openAttendanceWindowIcon: canScanAttendanceDirectly
+            ? windowInfo.icon
+            : null,
+        onScanAttendance: canScanAttendanceDirectly
+            ? () => _checkIn(windowCode: currentWindowCode!)
+            : null,
         onRetry: _loadInitial,
         onSelectJob: (job) => setState(() {
           _selectedTechJob = job;

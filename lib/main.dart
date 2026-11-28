@@ -49,7 +49,8 @@ class MyApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           title: 'Cirrus EMS',
           scrollBehavior: const _NoStretchScrollBehavior(),
-          themeAnimationDuration: Duration.zero,
+          themeAnimationDuration: const Duration(milliseconds: 260),
+          themeAnimationCurve: Curves.easeOutCubic,
           theme: AppTheme.forMode(
             ThemeService.currentMode,
             language: LanguageService.currentLanguage,

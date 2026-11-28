@@ -11,6 +11,7 @@ import 'package:cirrus_app/services/auth_service.dart';
 import 'package:cirrus_app/services/language_service.dart';
 import 'package:cirrus_app/services/technician_service.dart';
 import 'package:cirrus_app/theme/app_theme.dart';
+import 'package:cirrus_app/widgets/time_action_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -170,6 +171,7 @@ void main() {
     'Technician with active session sees GPS badge and Lunch/Leave Check Out options',
     (tester) async {
       SharedPreferences.setMockInitialValues({
+        'ems.authToken': 'test-token',
         'ems.user': jsonEncode({'id': 't1', 'name': 'Touch'}),
         'ems.roles': jsonEncode(['Technician']),
       });
@@ -238,6 +240,7 @@ void main() {
     'Technician on break sees Resume Work button and End Shift Now prompt',
     (tester) async {
       SharedPreferences.setMockInitialValues({
+        'ems.authToken': 'test-token',
         'ems.user': jsonEncode({'id': 't1', 'name': 'Touch'}),
         'ems.roles': jsonEncode(['Technician']),
       });
@@ -289,6 +292,7 @@ void main() {
     'Pending work report locks next job until technician submits the report',
     (tester) async {
       SharedPreferences.setMockInitialValues({
+        'ems.authToken': 'test-token',
         'ems.user': jsonEncode({'id': 't1', 'name': 'Touch'}),
         'ems.roles': jsonEncode(['Technician']),
       });
@@ -380,6 +384,7 @@ void main() {
     'Settings shows Job & Report History for Technician/Admin and displays reports',
     (tester) async {
       SharedPreferences.setMockInitialValues({
+        'ems.authToken': 'test-token',
         'ems.user': jsonEncode({'id': 't1', 'name': 'Touch'}),
         'ems.roles': jsonEncode(['Technician']),
       });
@@ -615,7 +620,7 @@ void main() {
   );
 
   testWidgets(
-    'TechnicianJobsScreen separates submitted awaiting-close jobs and locks Check-In',
+    'TechnicianJobsScreen hides completed submitted jobs and closed jobs',
     (tester) async {
       await LanguageService.setLanguage(AppLanguage.en);
 
@@ -653,19 +658,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('ASSIGNED TO YOU (1)'), findsOneWidget);
-      expect(find.text('SUBMITTED · AWAITING CLOSE (1)'), findsOneWidget);
       expect(find.text('WO-OPEN-1'), findsOneWidget);
-      expect(find.byKey(const Key('submitted-job-item-WO-DONE-1')), findsOneWidget);
+      expect(find.text('WO-DONE-1'), findsNothing);
       expect(find.text('WO-CLOSED-1'), findsNothing);
-
-      await tester.tap(find.byKey(const Key('submitted-job-item-WO-DONE-1')));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.byKey(const Key('job-submitted-awaiting-close-banner')),
-        findsOneWidget,
-      );
-      expect(find.byKey(const Key('select-job-for-checkin-button')), findsNothing);
+      expect(find.textContaining('SUBMITTED'), findsNothing);
     },
   );
 
@@ -673,6 +669,7 @@ void main() {
     'Technician who already scanned attendance sees Start Job instead of Check In',
     (tester) async {
       SharedPreferences.setMockInitialValues({
+        'ems.authToken': 'test-token',
         'ems.user': jsonEncode({'id': 't1', 'name': 'Touch'}),
         'ems.roles': jsonEncode(['Technician']),
       });
@@ -732,6 +729,7 @@ void main() {
     'Technician with job today and stale yesterday scan sees scan reminder and Check In',
     (tester) async {
       SharedPreferences.setMockInitialValues({
+        'ems.authToken': 'test-token',
         'ems.user': jsonEncode({'id': 't1', 'name': 'Touch'}),
         'ems.roles': jsonEncode(['Technician']),
       });
@@ -847,6 +845,7 @@ void main() {
     'Technician with no jobs and no scan today still sees scan reminder banner',
     (tester) async {
       SharedPreferences.setMockInitialValues({
+        'ems.authToken': 'test-token',
         'ems.user': jsonEncode({'id': 't1', 'name': 'Touch'}),
         'ems.roles': jsonEncode(['Technician']),
       });
@@ -979,6 +978,191 @@ void main() {
 
       expect(find.byKey(const Key('report-late-banner')), findsOneWidget);
       expect(find.textContaining('Overdue by'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Completed submitted job is cleared from AttendanceScreen selection on refresh',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'ems.authToken': 'test-token',
+        'ems.user': jsonEncode({'id': 't1', 'name': 'Touch'}),
+        'ems.roles': jsonEncode(['Technician']),
+      });
+      await LanguageService.setLanguage(AppLanguage.en);
+      stubBaseAttendance();
+
+      var completed = false;
+      TechnicianService.getMyJobsOverride = () async => TechnicianDashboardData(
+        workDate: '2026-11-27',
+        jobs: [
+          TechnicianJob(
+            id: 'wo-18',
+            jobCode: 'WO-000018',
+            title: 'Test Job',
+            isMine: true,
+            reportSubmitted: completed,
+            lastCheckoutStatus: completed ? 'completed' : null,
+          ),
+        ],
+        todaySessions: const [],
+        completedWindows: const {'morning_in'},
+        nextWindowCode: 'afternoon_in',
+      );
+
+      await tester.pumpWidget(wrapScreen(const AttendanceScreen()));
+      await tester.pumpAndSettle();
+
+      // Open job picker and select WO-000018
+      await tester.tap(find.byKey(const Key('technician-job-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('job-item-WO-000018')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('confirm-select-job-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('WO-000018'), findsWidgets);
+
+      // Now backend reflects reportSubmitted + completed -> refresh clears selection
+      completed = true;
+      await tester.tap(find.byTooltip('Refresh'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('START JOB · WO-000018'), findsNothing);
+      expect(find.text('No jobs available today'), findsOneWidget);
+      expect(find.textContaining('Tap to view all Job Codes'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Submitting report for completed job shows Job Completed celebratory dialog',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'ems.authToken': 'test-token',
+        'ems.user': jsonEncode({'id': 't1', 'name': 'Touch'}),
+        'ems.roles': jsonEncode(['Technician']),
+      });
+      await LanguageService.setLanguage(AppLanguage.en);
+      stubBaseAttendance();
+
+      var reportSubmitted = false;
+      TechnicianService.getMyJobsOverride = () async => TechnicianDashboardData(
+        workDate: '2026-11-27',
+        jobs: [
+          TechnicianJob(
+            id: 'wo-18',
+            jobCode: 'WO-000018',
+            title: 'Test Job',
+            isMine: true,
+            reportSubmitted: reportSubmitted,
+            lastCheckoutStatus: reportSubmitted ? 'completed' : null,
+          ),
+        ],
+        pendingReportSession: reportSubmitted
+            ? null
+            : const TechnicianWorkSession(
+                id: 'sess-18',
+                jobId: 'wo-18',
+                jobCode: 'WO-000018',
+                jobTitle: 'Test Job',
+                status: 'completed',
+                jobStatusAtCheckout: 'completed',
+                checkInAt: '2026-11-27T01:30:00.000Z',
+                checkOutAt: '2026-11-27T09:00:00.000Z',
+                durationMinutes: 450,
+              ),
+        todaySessions: const [],
+        completedWindows: const {'morning_in', 'leave_out'},
+        nextWindowCode: null,
+      );
+
+      TechnicianService.submitReportOverride = ({
+        required sessionId,
+        required workDescription,
+        required workType,
+        findings,
+        recommendations,
+        photos = const [],
+      }) async {
+        reportSubmitted = true;
+        return {'report': {'id': 'rep-18', 'status': 'submitted'}};
+      };
+
+      await tester.pumpWidget(wrapScreen(const AttendanceScreen()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('pending-report-startup-ok-button')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('report-description-field')),
+        'Completed final testing and cleanup.',
+      );
+      await tester.tap(find.byKey(const Key('submit-technician-report-button')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('confirm-submit-report-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('job-completed-dialog')), findsOneWidget);
+      expect(find.text('Job Completed!'), findsOneWidget);
+      expect(
+        find.textContaining('WO-000018 is completed and your work report'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('job-completed-ok-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('job-completed-dialog')), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Technician with no jobs and open attendance window can scan attendance directly',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'ems.authToken': 'test-token',
+        'ems.user': jsonEncode({'id': 't1', 'name': 'Touch'}),
+        'ems.roles': jsonEncode(['Technician']),
+      });
+      await LanguageService.setLanguage(AppLanguage.en);
+
+      AttendanceService.debugOverrideClient(
+        MockClient((request) async {
+          if (request.url.path.endsWith('/my-scans')) {
+            return http.Response('[]', 200);
+          }
+          return http.Response(
+            jsonEncode({
+              'currentWorkDate': '2026-11-28',
+              'currentWindowCode': 'morning_in',
+              'latestEvent': null,
+              'latestCountedEvent': null,
+            }),
+            200,
+          );
+        }),
+      );
+
+      TechnicianService.getMyJobsOverride = () async =>
+          const TechnicianDashboardData(
+            workDate: '2026-11-28',
+            jobs: [],
+            todaySessions: [],
+            completedWindows: {},
+            nextWindowCode: 'morning_in',
+          );
+
+      await tester.pumpWidget(wrapScreen(const AttendanceScreen()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CHECK IN'), findsOneWidget);
+      expect(find.textContaining('Scan · Morning In'), findsOneWidget);
+      final button = tester.widget<TimeActionButton>(
+        find.byType(TimeActionButton),
+      );
+      expect(button.enabled, isTrue);
     },
   );
 }

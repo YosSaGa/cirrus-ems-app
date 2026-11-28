@@ -295,6 +295,52 @@ DateTime? parseCalendarDate(String value) {
 }
 
 DateTime bangkokNow() => DateTime.now().toUtc().add(const Duration(hours: 7));
+
+/// Company payroll cycle: cutoff on the 25th (`26th prev month -> 25th this month`)
+/// and salary paid on the 5th of the following month.
+class PayrollCycle {
+  PayrollCycle.fromYearMonth(int year, int month)
+    : year = DateTime(year, month).year,
+      month = DateTime(year, month).month;
+
+  factory PayrollCycle.forDate(DateTime date) {
+    if (date.day > cutoffDay) {
+      return PayrollCycle.fromYearMonth(date.year, date.month + 1);
+    }
+    return PayrollCycle.fromYearMonth(date.year, date.month);
+  }
+
+  static const int cutoffDay = 25;
+  static const int paydayDay = 5;
+
+  final int year;
+  final int month;
+
+  DateTime get start => DateTime(year, month - 1, cutoffDay + 1);
+  DateTime get end => DateTime(year, month, cutoffDay);
+  DateTime get payday => DateTime(year, month + 1, paydayDay);
+
+  PayrollCycle shift(int deltaMonths) =>
+      PayrollCycle.fromYearMonth(year, month + deltaMonths);
+
+  bool hasEnded(DateTime now) =>
+      DateTime(now.year, now.month, now.day).isAfter(end);
+
+  int daysUntilPayday(DateTime now) => DateTime.utc(
+    payday.year,
+    payday.month,
+    payday.day,
+  ).difference(DateTime.utc(now.year, now.month, now.day)).inDays;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PayrollCycle && other.year == year && other.month == month;
+
+  @override
+  int get hashCode => Object.hash(year, month);
+}
+
 String formatWorkMinutes(int minutes) => '${minutes ~/ 60}h ${minutes % 60}m';
 String formatBaht(int satang) {
   final whole = (satang ~/ 100).abs().toString();
@@ -328,8 +374,10 @@ DateTime? _parseScanInstant(String raw) {
 PayEstimate calculateScanPay(
   List<Map<String, dynamic>> scans,
   DateTime month,
-  PaySettings settings,
-) {
+  PaySettings settings, {
+  DateTime? periodStart,
+  DateTime? periodEnd,
+}) {
   final groups = <String, List<Map<String, dynamic>>>{};
   final issues = <String>{};
   for (final scan in scans) {
@@ -340,7 +388,11 @@ PayEstimate calculateScanPay(
       issues.add('Invalid date');
       continue;
     }
-    if (date.year != month.year || date.month != month.month) continue;
+    if (periodStart != null && periodEnd != null) {
+      if (date.isBefore(periodStart) || date.isAfter(periodEnd)) continue;
+    } else {
+      if (date.year != month.year || date.month != month.month) continue;
+    }
     groups.putIfAbsent(key, () => []).add(scan);
   }
   var regular = 0;

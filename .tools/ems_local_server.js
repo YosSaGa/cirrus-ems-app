@@ -8,6 +8,7 @@ const PORT = Number(process.env.PORT || 3000);
 const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://postgres:1234@127.0.0.1:5432/cirrus_02';
 
 const pool = new Pool({ connectionString: DATABASE_URL });
+const tokenSecret = crypto.randomBytes(32);
 
 // Known scanner code aliases where hr.device_scans.device_user_code differs slightly from core.employees.employee_code
 const SCANNER_CODE_ALIASES = {
@@ -280,7 +281,8 @@ async function ensurePayrollSchema() {
 
 function makeToken(userId) {
   const payload = Buffer.from(JSON.stringify({ sub: userId, iat: Date.now() })).toString('base64url');
-  return `ems.${payload}.local`;
+  const signature = crypto.createHmac('sha256', tokenSecret).update(payload).digest('base64url');
+  return `ems.${payload}.${signature}`;
 }
 
 function parseToken(authHeader) {
@@ -288,8 +290,11 @@ function parseToken(authHeader) {
   const token = authHeader.slice('Bearer '.length).trim();
   if (!token) return null;
   const parts = token.split('.');
-  if (parts.length >= 2 && parts[0] === 'ems') {
+  if (parts.length === 3 && parts[0] === 'ems') {
     try {
+      const expected = crypto.createHmac('sha256', tokenSecret).update(parts[1]).digest();
+      const received = Buffer.from(parts[2], 'base64url');
+      if (received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) return null;
       const decoded = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
       if (decoded && typeof decoded.sub === 'string') return decoded.sub;
     } catch (_) {}
@@ -414,17 +419,6 @@ async function readJsonBody(req) {
   }
 }
 
-const DEV_FALLBACK_PASSWORDS = new Set([
-  '1234',
-  '123456',
-  '12345678',
-  'admin',
-  'admin123',
-  'password',
-  'Cirrus2026!',
-  'CirrusMarine2026!',
-]);
-
 const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
@@ -482,17 +476,6 @@ const server = http.createServer(async (req, res) => {
           validPassword = bcrypt.compareSync(rawPassword, acct.password_hash);
         } catch (_) {}
       }
-      if (!validPassword) {
-        // Allow dev test password or matching username/employee_code for local testing
-        if (
-          DEV_FALLBACK_PASSWORDS.has(rawPassword) ||
-          rawPassword.toLowerCase() === acct.username.toLowerCase() ||
-          (acct.employee_code && rawPassword === String(acct.employee_code))
-        ) {
-          validPassword = true;
-        }
-      }
-
       if (!validPassword) {
         return sendJson(res, 401, { message: 'Invalid username or password.' });
       }
@@ -1789,8 +1772,8 @@ const server = http.createServer(async (req, res) => {
 ensurePayrollSchema()
   .then(() => ensureSampleTechnicianJobs())
   .then(() => {
-    server.listen(PORT, '0.0.0.0', () => {
-      console.log(`Cirrus EMS Local Database Bridge listening on http://0.0.0.0:${PORT}/api/v1/ems -> ${DATABASE_URL}`);
+    server.listen(PORT, '127.0.0.1', () => {
+      console.log(`Cirrus EMS Local Database Bridge listening on http://127.0.0.1:${PORT}/api/v1/ems`);
     });
   })
   .catch((err) => {

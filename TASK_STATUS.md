@@ -1,6 +1,6 @@
 # สถานะงาน Cirrus EMS
 
-อัปเดตล่าสุด: 27 พฤศจิกายน 2026 (ลดขนาด APK และพื้นที่ติดตั้งบนมือถือด้วย R8 + shrinkResources + split-per-abi + obfuscate + ตัด asset/dependency ที่ไม่ได้ใช้ เหลือ ~22 MB ต่อเครื่อง)
+อัปเดตล่าสุด: 28 พฤศจิกายน 2026 (แก้ความปลอดภัย Local Bridge และป้องกันข้อมูลค้างสูญหาย)
 
 ภาพรวมและวิธีรันดู [README.md](README.md) — ไฟล์นี้เป็นแหล่งหลักสำหรับสถานะงาน แยกสิ่งที่มีในโค้ดออกจากสิ่งที่ตรวจบนระบบจริงแล้ว กติกาการทำงานและคำสั่งสำคัญดู [AGENTS.md](AGENTS.md) แนวทาง UI ดู [DESIGN.md](DESIGN.md)
 
@@ -108,6 +108,16 @@
 | **Entry Animations (รอบ 2 — 20 พ.ย. 2026)** | ทุกหน้าได้รับ FadeSlideEntry / flutter_animate, login_screen ได้ stagger delay ผ่าน Interval curve, tests 87 ข้อผ่านทั้งหมด ✅ |
 
 ## ประวัติการเปลี่ยนแปลง
+
+### 28 พฤศจิกายน 2026 — ตรวจและแก้ความปลอดภัยกับการกู้คืนข้อมูล
+
+- **Local Bridge:** ปัญหา token เดิมปลอมได้และมีรหัสผ่านทดสอบที่ใช้เข้าสู่บัญชีได้ แก้โดยลงลายเซ็น HMAC ด้วยกุญแจชั่วคราว ตรวจลายเซ็นก่อนอ่าน user ID ใช้รหัสผ่านจากฐานข้อมูลเท่านั้น และจำกัดการเชื่อมต่อที่ localhost การรีสตาร์ต Bridge ทำให้ token เดิมหมดอายุ
+- **สลับบัญชี:** เดิมข้อผิดพลาดเครือข่ายทำให้ล้าง token บัญชีปลายทางและเปลี่ยน session ก่อนตรวจสำเร็จ แก้ให้ตรวจ token ก่อนสลับ เก็บ token เมื่อเครือข่ายหรือเซิร์ฟเวอร์ขัดข้อง และล้าง token เฉพาะเมื่อเซิร์ฟเวอร์ตอบ 401
+- **รายการลงเวลาค้าง:** เดิมการล้าง session ลบรายการที่ยังส่งไม่สำเร็จ แก้ให้เก็บรายการแยกตามผู้ใช้ พร้อมปรับข้อความเตือนให้อธิบายการกลับมาเข้าสู่บัญชีเดิม
+- **รายงานช่าง:** เดิมเมื่อ API ขอให้ยืนยันสถานะ ระบบส่ง completed อัตโนมัติ แก้ให้ใช้สถานะจาก work session และแจ้งให้รีเฟรชเมื่อสถานะไม่ชัดเจน
+- **ตรวจแล้ว:** เทสต์ทั้งโปรเจกต์ผ่าน 170 ข้อ ข้าม 1 ข้อ ชุดเฉพาะไฟล์ที่เกี่ยวข้องผ่าน 81 ข้อ Analyzer ทั้งโปรเจกต์ไม่มี error/warning มี info 61 รายการ ซึ่งรวม lint ที่มีอยู่เดิม Analyzer 6 ไฟล์ที่แก้พบเฉพาะ SDK deprecation 3 รายการ ตรวจ syntax Bridge ด้วย `node --check` และตรวจ token ที่ถูกต้องกับ token ปลอมด้วย Node ผ่าน
+- **ยังไม่ได้ทำ:** token ใน SharedPreferences ยังไม่ได้ย้ายไป secure storage รูปแนบรายงานยังไม่ได้เก็บเป็นร่างถาวร และยังไม่ได้ยืนยัน idempotency กับ Backend จริง ไม่ได้ทดสอบ end-to-end กับ Backend จริงรอบนี้
+- ตรวจและอัปเดต README.md แล้ว ภาพรวมโครงสร้างไฟล์ไม่เปลี่ยน
 
 ### 26 พฤศจิกายน 2026 (รอบ 33) — ปรับ Flow โหมดช่างเป็น Check In / Break พัก (พร้อมถามจบงานเลยไหม) / Check Out + สร้างไฟล์ Flowchart HTML
 - **Backend Bridge (`.tools/ems_local_server.js` — Zero DB Migration):**
@@ -814,6 +824,29 @@
 - Flutter tests ผ่าน 111 ข้อ ตรวจภาพสถานะเปิดจากข้อมูลจำลองบนจอ 390 × 844 แล้ว ติดตั้ง APK และเปิดแอปบน Pixel emulator โดยเก็บข้อมูลเดิม
 - ตรวจและอัปเดต README.md และ DESIGN.md ข้อจำกัดเรื่องเวลาเปิดรอบและการทดสอบลงเวลาจริงยังเหมือนเดิม
 
+### 28 พฤศจิกายน 2026 — ปลดล็อกสแกนลงเวลาในแอปสำหรับโหมดช่างเมื่อยังไม่มี Job Code
+
+- **ทำแล้ว:**
+  - **ปลดล็อกปุ่มวงกลมหลักในโหมดช่าง (`lib/screens/attendance_screen.dart`, `lib/widgets/technician_attendance_section.dart`):**
+    - สิ่งที่ทำ: ส่งสถานะช่วงเวลาลงเวลาที่เปิดอยู่ (`Morning In`, `Lunch Out`, `Afternoon In`, `Leave`) และ callback `_checkIn(windowCode)` เข้า `TechnicianJobActionZone` เพื่อเปิดให้กดสแกนลงเวลาผ่านแอปได้โดยตรง (`Scan · <Window>`) เมื่อยังไม่ได้เลือก Job Code
+    - ปัญหาที่พบ → วิธีแก้ไข: เดิมปุ่ม `CHECK IN` โหมดช่างล็อกบังคับให้เลือก Job Code ก่อนเสมอ ทำให้วันที่ยังไม่มีงานเข้า (`NO JOBS AVAILABLE TODAY`) ช่างกดสแกนเข้างานผ่านแอปไม่ได้ทั้งที่ช่วง `MORNING IN` เปิดอยู่ → เพิ่มเงื่อนไขปลดล็อกปุ่มเมื่อช่วงเวลาลงเวลาเปิดอยู่และยังไม่เคยสแกนช่วงนั้น (ปรับ `_pendingLookup == null || absent` และใช้ `openAttendanceWindowKind == 'in'` เพื่อให้ `lunch_out` แสดงเป็น `Check Out` ตรงตามช่วงเวลา; เพิ่มเทสต์ใน `test/technician_attendance_test.dart`)
+  - **ซิงก์สถานะสแกนลงเวลาแบบเรียลไทม์อัตโนมัติ (`lib/screens/attendance_screen.dart`):**
+    - สิ่งที่ทำ: เพิ่ม `_ensureAttendancePolling()` และ `_pollAttendanceStatusSilently()` ดึง `/app-attendance/status` และ `/my-scans` เงียบๆ ทุก 15 วินาทีขณะเปิดแอปอยู่หน้าหลัก และรีเฟรชทันทีเมื่อสลับกลับเข้าแอป (`AppLifecycleState.resumed`) ทั้งบัญชี Office และ Technician พร้อมหยุด timer เมื่อพับแอป (`paused`/`detached`)
+    - ปัญหาที่พบ → วิธีแก้ไข: เดิมระบบ poll อัตโนมัติเฉพาะรายการ Job Code ของช่าง ทำให้เวลาพนักงานไปสแกนที่เครื่องสแกนนิ้วแล้วกลับมาดูแอป สถานะปุ่มและไทม์ไลน์ไม่อัปเดตจนกว่าจะกด Refresh เอง → เพิ่ม foreground polling แยกเฉพาะสถานะสแกนและปิดอัตโนมัติใน Widget Test (`_isWidgetTest`) เพื่อไม่ให้ค้าง timer ในชุดทดสอบ
+  - **สร้างเอกสาร Spec จัดระเบียบรายงานช่างสำหรับฝั่งเว็บ (`docs/REPORT_FORMAT_SPEC.md`):**
+    - สิ่งที่ทำ: สรุป Marker หัวข้อใน `workDescription` (`[ปัญหาที่พบ / Issues]`, `[งานค้างต่อ / Recommendations]`, `[ส่งรายงานช้า / Late Report: +N min]`), ตัวอย่าง JSON จริง, และโค้ด TypeScript Parser พร้อมแนวทางแสดงผลแยกกล่องสีบนเว็บ
+    - ปัญหาที่พบ → วิธีแก้ไข: ฝั่งเว็บรับข้อความรวมก้อนเดียวจาก `workDescription` จึงดูกลืนกัน → ทำไฟล์ Spec ส่งทีมเว็บแยกแสดงผลฝั่ง Frontend โดยไม่กระทบ Backend/Database เลย 100%
+  - **ปรับรอบตัดเงินเดือนหน้า Pay Estimate เป็นตัดวันที่ 25 · เงินเข้าวันที่ 5 (`lib/models/payroll_calculator.dart`, `lib/screens/earnings_trial_tab.dart`):**
+    - สิ่งที่ทำ: เพิ่ม `PayrollCycle` (`26 เดือนก่อน → 25 เดือนนี้`, `payday` วันที่ 5 เดือนถัดไป) พร้อมแถบ `payroll-cycle-banner` แสดงช่วงวันตัดรอบ, วันเงินเข้า, และตัวนับถอยหลัง โดยยังคงหน้า `History` เป็นเดือนปฏิทินตามเดิม
+    - ปัญหาที่พบ → วิธีแก้ไข: (1) เดิมคำนวณวันที่ `1–สิ้นเดือน` ไม่ตรงรอบบริษัท และ (2) AI Subagent (`Payroll Cycle Auditor`) ตรวจพบเทสต์เก่าที่ใช้ `วันที่ 2 ของเดือนปฏิทิน` ตกนอกรอบเมื่อรันหลังวันที่ 25 รวมถึง `daysUntilPayday` ข้าม DST → ปรับใช้ `PayrollCycle.forDate(...)`, `DateTime.utc` ในการนับวัน, `AppStrings.monthShort` กันข้อความล้น และเพิ่ม unit tests (`test/payroll_calculator_test.dart`, `test/work_trial_screen_test.dart`, `test/pay_calculator_screen_test.dart`)
+  - **สแกนและอุดช่องโหว่ + Human Error 7 จุด โดยไม่กระทบ UI/UX และ Backend (AI Subagents: Security & UX Auditors):**
+    - สิ่งที่ทำ: (1) ล้าง `_cachedTeamMemberId` และ `lastDashboardData` ทั้งใน `AuthService._clearLocalSession()`, `switchToAccount()`, และ `AttendanceScreen._logout()` พร้อมยกเลิก Work Timer Notification; (2) ส่ง `authenticated: true` ให้ `POST /auth/logout` และเพิ่ม `.timeout(authRequestTimeout)` ใน `AuthService._request`; (3) ล้างคีย์ให้ครบใน `switchToAccount()` rollback เมื่อ `prev* == null`; (4) เพิ่ม `try/catch` ปิด `switching-account-dialog` ใน `ProfileScreen` ไม่ให้ค้าง; (5) ป้องกัน `TypeError`/`FormatException` ใน `AttendanceService` (`Map<String, dynamic>.from` และ `MediaType.parse` fallback); (6) เพิ่มตัวกันกดซ้ำ (`saving` ใน `PayrollManagementScreen._openItemDialog`, `_submitting` หลัง dialog ใน `TechnicianReportScreen._submit`); (7) หยุด `_techPollTimer` เมื่อแอปพับเข้า background
+    - ปัญหาที่พบ → วิธีแก้ไข: เดิมสลับบัญชี/ออกจากระบบอาจเหลือ cache ช่างคนเก่า, dialog สลับบัญชีอาจค้างถ้า throw error, และกดบันทึกซ้ำเร็วๆ ในฟอร์มค่าแรง/รายงานอาจยิงซ้อน → อุดทุกจุดฝั่ง client โดยไม่แตะ UI/UX, Storage format, หรือ Backend API
+- **ตรวจแล้ว:**
+  - `F:\bin\flutter.bat analyze --no-fatal-infos`: 0 error, 0 warning (มีเฉพาะ SDK `material.dart` deprecation info)
+  - `F:\bin\flutter.bat test test\auth_service_test.dart test\technician_attendance_test.dart test\payroll_management_test.dart test\settings_screen_test.dart test\ui_refresh_test.dart`: ผ่านครบ **63/63** ข้อ (และชุด payroll 20/20 ผ่านก่อนหน้า)
+  - Build split release APK: `app-arm64-v8a-release.apk`, `app-armeabi-v7a-release.apk`, `app-x86_64-release.apk` และติดตั้งลงเครื่องทดสอบ
+
 ### 27 พฤศจิกายน 2026 — จับคู่ teamMemberId + แยก Error 502 จากไม่มีงาน + ตรวจเทสต์ทั้งโปรเจกต์
 
 - **ทำแล้ว:**
@@ -853,11 +886,21 @@
   - **ข้อมูลเรือและอุปกรณ์ในหน้า Job Details (`lib/services/technician_service.dart`, `lib/screens/technician_jobs_screen.dart`):** ดึงรายละเอียดเรือ (`/vessels`) และอุปกรณ์ (`/assets`) มาแสดงเป็นการ์ด `VESSEL & EQUIPMENT` ใน `TechnicianJobDetailScreen` (ประเภทเรือ, รุ่น, ทะเบียน/IMO, ชื่ออุปกรณ์, รุ่น, Serial No.) พร้อมเพิ่มเทสต์ใน `test/technician_attendance_test.dart`
   - **แจ้งเตือน Job Code ใหม่แบบ Heads-Up + สั่น (`MainActivity.kt`, `AndroidManifest.xml`, `work_timer_notification_service.dart`, `attendance_screen.dart`):** เพิ่มช่อง Notification `cirrus_new_jobs` (`IMPORTANCE_HIGH` + `VIBRATE`) เด้งเตือนพร้อมสั่นแม้อยู่นอกแอป/พับแอป/ล็อกจอ (แตะเปิดเข้าหน้างานได้ทันที)
   - **กำหนดส่งรายงานก่อน 07:00 น. วันถัดไป + นับนาทีสาย (`technician_service.dart`, `technician_report_screen.dart`, `attendance_screen.dart`):** เพิ่ม `reportDeadlineLocal`, `reportLateMinutes()`, `reportRemainingTime()` บน `TechnicianWorkSession`, แสดงแบนเนอร์เตือนเวลาที่เหลือหรือจำนวนนาทีที่เกิน 07:00 น. บนหน้ารายงานและ Dialog เปิดแอป และแนบ `[ส่งรายงานช้า / Late Report: +N min]` ใน `workDescription` เมื่อเกินกำหนด (เพิ่ม unit/widget tests ใน `test/technician_attendance_test.dart`)
+  - **ล้าง Job Code ที่ส่งรายงานเสร็จแล้วออกจากหน้า Attendance อัตโนมัติ + หน้าต่างยินดีเมื่อจบงาน (`lib/screens/attendance_screen.dart`):**
+    - ใน `_loadInitial()`, `_pollTechnicianJobsSilently()` และ `_openTechnicianReport()` ให้เคลียร์ `_selectedTechJob` ทันทีเมื่องานนั้นมี `isSelectableForCheckIn == false` เพื่อไม่ให้งานที่ `Completed` ค้างอยู่บนปุ่ม `START JOB`
+    - เพิ่ม AlertDialog แสดงความยินดี (`Key('job-completed-dialog')`, `Job Completed!` / `ยินดีด้วย! จบงานเรียบร้อยแล้ว`) พร้อม Haptic Feedback และปุ่ม `เยี่ยมเลย / Great!` (`Key('job-completed-ok-button')`) เมื่อช่างกดจบงานแบบ `completed` และส่งรายงานการทำงานสำเร็จ (เพิ่มเทสต์ใน `test/technician_attendance_test.dart`)
+  - **เพิ่มกติกาการบันทึกเอกสาร `.md` (`AGENTS.md`):** ปรับกติกาใน `AGENTS.md` ให้บันทึกอัปเดตระบุทั้ง **สิ่งที่ทำ/สิ่งที่เปลี่ยน** คู่กับ **ปัญหาที่พบและวิธีแก้ไข** ในความยาวระดับปานกลาง กระชับ ตรงประเด็น ไม่เวิ้นเว่อ (แก้ปัญหาการจดแค่รายการที่ทำแล้วไม่เห็นสาเหตุและวิธีแก้ย้อนหลัง)
+  - **เพิ่ม UI/UX Micro-Animations 6 จุด (Zero New Packages + 60fps Safe):**
+    - สิ่งที่ทำ: (1) เพิ่ม `_LivePulseDot` ข้างป้าย `ON SITE` และ `AnimatedSize`/`AnimatedSwitcher` สลับการ์ดสถานะใน `lib/widgets/technician_attendance_section.dart`; (2) แยก `JobCompletedDialog` (`lib/widgets/job_completed_dialog.dart`) พร้อม `_ConfettiBurstPainter` (1.2 วินาทีจบในตัว) และไอคอน `elasticOut`; (3) เพิ่ม `AnimatedSwitcher` ชื่อเดือน + `TweenAnimationBuilder<int>` นับชั่วโมงและ Insights 2×2 ใน `lib/screens/history_screen.dart`; (4) เพิ่ม `AnimatedRotation` ลูกศรกางรายละเอียดใน `lib/screens/technician_history_screen.dart`; (5) เพิ่ม pop-in รูปถ่าย + แถบความคืบหน้าการอัปโหลดบนปุ่มส่งรายงานใน `lib/screens/technician_report_screen.dart`; (6) เปิด `themeAnimationDuration: 260ms` ใน `lib/main.dart`
+    - ปัญหาที่พบ → วิธีแก้ไข: แอนิเมชันวนซ้ำอาจทำให้ `tester.pumpAndSettle()` ค้าง และอาจกินแบตถ้าไม่แยก layer → ป้องกันใน `_LivePulseDot` ด้วยการปิด loop เมื่ออยู่ใน Widget Test หรือเปิด Reduced Motion พร้อมครอบ `RepaintBoundary` และให้ confetti ใน `JobCompletedDialog` เล่น `forward()` รอบเดียวแล้วหยุด
+  - **ซ่อนงานที่ส่งรายงานจบแล้วออกจากหน้า `ALL JOB CODES` และการ์ดเลือกงานหน้า Attendance (`lib/screens/technician_jobs_screen.dart`, `lib/widgets/technician_attendance_section.dart`):**
+    - สิ่งที่ทำ: กรอง `isSubmittedAwaitingClose` ออกจากทั้ง `myJobs` และ `otherJobs` พร้อมลบหมวด `SUBMITTED · AWAITING CLOSE` ใน `TechnicianJobsScreen` และปรับ `TechnicianJobActionZone` (`_jobSelectorCard`) ให้คำนวณ `openJobs` (เฉพาะงานที่ยังไม่ส่งรายงานจบและยังไม่ปิด) แทน `jobs.length`
+    - ปัญหาที่พบ → วิธีแก้ไข: งานที่ช่างส่งรายงานจบแล้ว (`WO-000018`, `WO-000019`) แต่เว็บยังไม่ปิดใบงานยังทำให้ปุ่มเลือกงานขึ้น `Tap to view all Job Codes (2)` และโชว์ค้างในหน้ารายการงาน → กรอง `openJobs` ทั้งสองจุดให้เหลือเฉพาะงานที่ยังทำได้จริง เมื่อไม่มีงานค้างจะแสดง `No jobs available today` (อัปเดตเทสต์ใน `test/technician_attendance_test.dart`)
 - **ตรวจแล้ว:**
   - `F:\bin\flutter.bat analyze --no-fatal-infos`: 0 error, 0 warning (มีเฉพาะ SDK `material.dart` deprecation info)
-  - `F:\bin\flutter.bat test test\technician_attendance_test.dart`: ผ่านครบ **16/16** ข้อ (รวมเทสต์แบนเนอร์เตือนสแกนทั้งมีงานและไม่มีงาน + เทสต์ล็อกหน้ารายงาน)
-  - Build split release APK: `app-arm64-v8a-release.apk` **22.0 MB**, `app-armeabi-v7a-release.apk` **20.1 MB**, `app-x86_64-release.apk` **23.4 MB**
-  - ติดตั้ง `app-x86_64-release.apk` และเปิดแอปบน `emulator-5554` สำเร็จ ไม่มี `FATAL EXCEPTION` / `ClassNotFoundException` / `NoSuchMethodError` ใน logcat
+  - `F:\bin\flutter.bat test test\technician_attendance_test.dart test\settings_screen_test.dart test\ui_refresh_test.dart`: ผ่านครบ **40/40** ข้อ
+  - Build split release APK: `app-arm64-v8a-release.apk` **22.0 MB**, `app-armeabi-v7a-release.apk` **20.2 MB**, `app-x86_64-release.apk` **23.4 MB**
+  - ติดตั้ง `app-x86_64-release.apk` และเปิดแอปบน `emulator-5554` สำเร็จ
 - **ตรวจ `README.md`:** ตรวจแล้วไม่มีผลกระทบต่อภาพรวม (`อัปเดตล่าสุด: 27 พฤศจิกายน 2026` ตรงแล้ว)
 
 ### 26 พฤศจิกายน 2026 — โหมดช่าง Check-In / Break พัก / Check-Out + แนบรูปและปัญหาที่พบในหน้ารายงานการทำงาน
