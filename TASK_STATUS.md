@@ -109,6 +109,26 @@
 
 ## ประวัติการเปลี่ยนแปลง
 
+### 28 พฤศจิกายน 2026 — ปิดช่องโหว่/บั๊ก Services + UI/Obsidian Contrast + รองรับฟิลด์ Dispatch ล่วงหน้า + QoL หน้างาน
+
+- **Services & Models (`attendance_service.dart`, `payroll_service.dart`, `auth_service.dart`, `technician_service.dart`, `work_timer_notification_service.dart`, `theme_service.dart`, `payroll_calculator.dart`):**
+  - **ปัญหา → วิธีแก้:** HTTP บางจุดไม่มี timeout เสี่ยงล็อกค้าง per-user → เพิ่ม `.timeout` (20s/15s/`uploadTimeout`); `TechnicianService` ดึงแบบไม่แบ่งหน้า + `_getHistoryFromNestApi` ไม่ resolve `teamMemberId` → เพิ่ม `_getPaginatedList` (`limit=200`, สูงสุด 5 หน้า), รองรับฟิลด์จาก `004_db_first_alignment.sql` (`jobCode`, `shiftDate`, `startTime`, `endTime`, `location`, `taskDescription`) ล่วงหน้า, และ resolve `/team-members` ในหน้าประวัติ; `switchToAccount` ทับข้อมูลใหม่ด้วย snapshot เก่า + token หมดอายุไม่ถูกล้าง → ใช้ snapshot ที่รีเฟรชแล้วและ prune token เกิน 5 วันอัตโนมัติ; `WorkTimerNotificationService` จำ `_lastKey` ก่อนเช็คสิทธิ์ผ่าน → ตั้ง `_lastKey` เฉพาะเมื่อ `showWorkTimer` คืน `true`; `ThemeService` แยก key Haptics จาก `AppPreferencesService` → รวมศูนย์ผ่าน `AppPreferencesService`; `PayrollAdjustmentItem.computeSatang` / `calculateScanPay` → ดัก `isFinite` และ normalize วันที่ขอบเขตรอบจ่าย
+- **UI Bugs, Leaks, Obsidian Black Contrast & QoL (`attendance_screen.dart`, `technician_report_screen.dart`, `technician_jobs_screen.dart`, `technician_history_screen.dart`, `payroll_management_screen.dart`, `earnings_trial_tab.dart`, `leave_trial_tab.dart`, `attendance_camera_screen.dart`, `login_screen.dart`, `profile_screen.dart`, `saved_accounts_screen.dart`):**
+  - **ปัญหา → วิธีแก้:** จบงานจาก Break ส่ง `jobStatusAtCheckout: null` และ `_technicianCheckOut` ขาด `vesselName` → สร้าง `completedSession` ครบถ้วน; ช่างสแกนตรงไม่ผ่านแล้วไม่มีปุ่ม Retry/Discard → เพิ่มการ์ด `technician-pending-attendance-card`; `PopScope` รายงานยอมให้กด Back ระหว่างส่ง → ล็อก `!_submitting`; `mounted` guard หลัง `await` ใน `attendance_screen.dart`, `dispose()` 4 controller ใน `payroll_management_screen.dart`, `try/catch` + Pull-to-Refresh เรท/รายการหักใน `earnings_trial_tab.dart`; `_metaRow` ล้นจอใน `technician_jobs_screen.dart` → ใช้ `Flexible`; แก้ contrast ธีม Obsidian Black (spinner, `CircleAvatar`, stepper icon)
+  - **QoL ใหม่:** แตะซูมดูรูปเต็มจอ + ปุ่มลบใน `TechnicianReportScreen`, ปุ่ม `Details` บนการ์ด `YOUR JOB` ใน `TechnicianJobsScreen`, และปุ่ม `Reset filters` + แตะคัดลอก `Job Code` ใน `TechnicianHistoryScreen`
+- **ผลตรวจ:** `flutter analyze --no-fatal-infos` ทั้ง 18 ไฟล์ที่แก้ → **0 error / 0 warning** (มีเฉพาะ SDK `deprecated_member_use` `info`), `flutter test` ทั้ง 7 ชุด (`auth_service_test`, `payroll_management_test`, `payroll_calculator_test`, `technician_attendance_test`, `work_trial_screen_test`, `settings_screen_test`, `ui_refresh_test`) → **ผ่านครบ 86/86 ข้อ**
+- ตรวจ `README.md` แล้ว ภาพรวมโครงสร้างและ backend ยังตรงกัน
+
+### 28 พฤศจิกายน 2026 — ลบค่า `localhost` / Local Bridge fallback ทั้งหมด ให้ต่อตรง Production API
+
+- **สิ่งที่เปลี่ยน (`.env`, `lib/services/auth_service.dart`, `lib/services/payroll_service.dart`):**
+  - ลบ `QUOTATIONS_URL=http://localhost:5000` ออกจาก `.env`
+  - เพิ่ม `AuthService.defaultProductionBaseUrl` (`https://api.cirrusmarine.site/api/v1/ems`), ตัด trailing `/` ใน `resolveBaseUrl`, และเปลี่ยน `platformDefault` ของ Web/Android/iOS/Desktop จาก `localhost:3000` / `10.0.2.2:3000` เป็น Production URL ทั้งหมด
+  - ลบ `_isLocalBridge` และสาขา `/payroll/my-config` ออกจาก `PayrollService.getMyPayrollConfig()` ให้เรียก `GET /compensation` ตรงฐานข้อมูลจริงเสมอ
+- **ปัญหาที่พบ → วิธีแก้ไข:** เดิมโค้ดยังมี fallback URL ชี้ไป `localhost:3000` / `10.0.2.2:3000` และเช็ค `_isLocalBridge` ค้างไว้ (รวมถึง Desktop ที่ไม่อ่าน `.env`) → เปลี่ยน fallback ทั้งหมดเป็น `https://api.cirrusmarine.site/api/v1/ems` และอ่าน `.env` บน Desktop ด้วย
+- **ผลตรวจ:** ค้นหา `localhost|127.0.0.1|10.0.2.2|:3000` ใน `lib/` และ `.env` พบ `0` รายการ, `flutter analyze --no-fatal-infos lib/services/auth_service.dart lib/services/payroll_service.dart` ผ่าน `0` warning/error, `flutter test test/auth_service_test.dart test/payroll_management_test.dart` ผ่านครบ `25/25` ข้อ
+- ตรวจ `README.md` แล้ว ภาพรวมการเชื่อมต่อยังชี้ `https://api.cirrusmarine.site/api/v1/ems` ตรงกัน
+
 ### 28 พฤศจิกายน 2026 — ตรวจและแก้ความปลอดภัยกับการกู้คืนข้อมูล
 
 - **Local Bridge:** ปัญหา token เดิมปลอมได้และมีรหัสผ่านทดสอบที่ใช้เข้าสู่บัญชีได้ แก้โดยลงลายเซ็น HMAC ด้วยกุญแจชั่วคราว ตรวจลายเซ็นก่อนอ่าน user ID ใช้รหัสผ่านจากฐานข้อมูลเท่านั้น และจำกัดการเชื่อมต่อที่ localhost การรีสตาร์ต Bridge ทำให้ token เดิมหมดอายุ
@@ -842,9 +862,24 @@
   - **สแกนและอุดช่องโหว่ + Human Error 7 จุด โดยไม่กระทบ UI/UX และ Backend (AI Subagents: Security & UX Auditors):**
     - สิ่งที่ทำ: (1) ล้าง `_cachedTeamMemberId` และ `lastDashboardData` ทั้งใน `AuthService._clearLocalSession()`, `switchToAccount()`, และ `AttendanceScreen._logout()` พร้อมยกเลิก Work Timer Notification; (2) ส่ง `authenticated: true` ให้ `POST /auth/logout` และเพิ่ม `.timeout(authRequestTimeout)` ใน `AuthService._request`; (3) ล้างคีย์ให้ครบใน `switchToAccount()` rollback เมื่อ `prev* == null`; (4) เพิ่ม `try/catch` ปิด `switching-account-dialog` ใน `ProfileScreen` ไม่ให้ค้าง; (5) ป้องกัน `TypeError`/`FormatException` ใน `AttendanceService` (`Map<String, dynamic>.from` และ `MediaType.parse` fallback); (6) เพิ่มตัวกันกดซ้ำ (`saving` ใน `PayrollManagementScreen._openItemDialog`, `_submitting` หลัง dialog ใน `TechnicianReportScreen._submit`); (7) หยุด `_techPollTimer` เมื่อแอปพับเข้า background
     - ปัญหาที่พบ → วิธีแก้ไข: เดิมสลับบัญชี/ออกจากระบบอาจเหลือ cache ช่างคนเก่า, dialog สลับบัญชีอาจค้างถ้า throw error, และกดบันทึกซ้ำเร็วๆ ในฟอร์มค่าแรง/รายงานอาจยิงซ้อน → อุดทุกจุดฝั่ง client โดยไม่แตะ UI/UX, Storage format, หรือ Backend API
+  - **ขัดเกลา `AppBottomNav` ให้สมูทและมีมิติขึ้น (`lib/widgets/app_bottom_nav.dart`):**
+    - สิ่งที่ทำ: ปรับจังหวะเลื่อนเป็น `380ms Curves.easeOutQuart`, เพิ่ม `AnimatedSwitcher` (`easeOutBack` + `FadeTransition`) ให้ไอคอนในฟองลอย, ไล่สี label ด้วย `Color.lerp`, เพิ่มขอบบางๆ (`cardBorder`) รอบ `_NavigationSurface` และเงาสองชั้น + ขอบ Teal จางๆ บนฟองลอย
+    - ปัญหาที่พบ → วิธีแก้ไข: เดิมสีข้อความใต้ฟองตัดเปลี่ยนทันทีที่ `progress > 0.5` และตัวแถบไม่มีเส้นขอบแยกจากพื้นหลังในธีมสว่าง → ใช้ `Color.lerp` ไล่สีและเพิ่ม hairline stroke บน path รอยเว้าโดยคงทุก key และรองรับ reduced motion เต็มรูปแบบ
+  - **เพิ่มการ์ด `ASSIGNED CREW` + ย่อรายชื่อทีม + สี Priority ตรงกับเว็บ (`lib/screens/technician_jobs_screen.dart`):**
+    - สิ่งที่ทำ: เพิ่มการ์ด `ASSIGNED CREW (N)` (`Key('job-assigned-crew-card')`) แสดงชิปทีมช่างพร้อมอักษรย่อและไฮไลต์ป้าย `YOU / คุณ` ในหน้า `TechnicianJobDetailScreen`, ย่อรายชื่อบนการ์ดเป็น `A, B +N` เมื่อมี 3+ คน, และปรับสี `_priorityPill` (`urgent` แดง, `high` ส้ม, `medium` ฟ้า) ให้ตรงกับ `SYSTEM_OVERVIEW.md`
+    - ปัญหาที่พบ → วิธีแก้ไข: เดิม `assignedToName` แสดงเป็นข้อความยาวบรรทัดเดียวทำให้ล้นเมื่อมีช่างหลายคนและไม่เน้นตัวผู้ใช้ → แยกเป็น `_parseCrewNames` + `_formatCompactCrew` และเพิ่มเทสต์ใน `test/technician_attendance_test.dart`
+  - **อัปเดตป้ายเวอร์ชันใน Settings เป็น Beta (`lib/screens/settings_screen.dart`):**
+    - สิ่งที่ทำ: เปลี่ยนข้อความแสดงเวอร์ชันใน `About` จาก `1.0.0 (Build 2026.11)` เป็น `1.0.0-beta (Build 2026.11)` (EN/TH/MS)
+    - ปัญหาที่พบ → วิธีแก้ไข: แอปยังอยู่ในช่วงทดสอบภาคสนาม จึงติดป้าย `-beta` ให้ผู้ใช้และทีมเห็นชัดเจน
+  - **เพิ่มหน้า `Help & Guide` / คู่มือ & คำถามที่พบบ่อย (`lib/screens/help_faq_screen.dart`, `lib/screens/settings_screen.dart`):**
+    - สิ่งที่ทำ: สร้าง `HelpFaqScreen` แบบ Accordion แตะกาง/ยุบได้ 5 คำถามสำคัญสำหรับผู้ใช้จริง (สแกนแอปกับเครื่องนิ้ว, ขั้นตอนช่าง, ส่งรายงานก่อน 07:00 น., รอบเงินเดือน 26–25/เงินเข้าวันที่ 5 & ใบลา PDF, แก้ปัญหาเบื้องต้นกล้อง/GPS) รองรับ EN/TH/MS และทั้ง 3 ธีม เชื่อมเข้าจาก `Settings > ABOUT` พร้อมอัปเดต `PROJECT_STRUCTURE.md` และเพิ่มเทสต์ใน `test/settings_screen_test.dart`
+    - ปัญหาที่พบ → วิธีแก้ไข: ช่วงปล่อย Beta พนักงานและช่างมักถามซ้ำเรื่องเครื่องสแกนนิ้ว, เวลาส่งรายงาน 07:00 น. และรอบตัดเงินเดือน → คัดเฉพาะ 5 ข้อสำคัญและย่อคำตอบให้กระชับ 1–2 ประโยคพร้อมพับเริ่มต้นเพื่อให้อ่านง่ายในหน้าเดียวโดยไม่ต้องแก้ Backend
+  - **กรองงานที่ส่งรายงานจบแล้วออกจาก Notification งานใหม่ (`lib/screens/attendance_screen.dart`):**
+    - สิ่งที่ทำ: เพิ่มเงื่อนไข `j.isSelectableForCheckIn` ใน `_pollTechnicianJobsSilently()` ตอนคำนวณ `newJobs`
+    - ปัญหาที่พบ → วิธีแก้ไข: เดิม `newJobs` เช็กแค่ `!prevIds.contains(j.id)` ทำให้เมื่อ Backend ส่งงานเก่าที่ช่างคนนั้นส่งรายงานจบแล้วกลับมาในลิสต์ แอปเด้งแจ้งเตือน `New Job` หลอกทั้งที่หน้าจอขึ้น `NO JOBS AVAILABLE TODAY` → กรองด้วย `isSelectableForCheckIn` ให้แจ้งเตือนเฉพาะงานที่ทำได้จริง
 - **ตรวจแล้ว:**
   - `F:\bin\flutter.bat analyze --no-fatal-infos`: 0 error, 0 warning (มีเฉพาะ SDK `material.dart` deprecation info)
-  - `F:\bin\flutter.bat test test\auth_service_test.dart test\technician_attendance_test.dart test\payroll_management_test.dart test\settings_screen_test.dart test\ui_refresh_test.dart`: ผ่านครบ **63/63** ข้อ (และชุด payroll 20/20 ผ่านก่อนหน้า)
+  - `F:\bin\flutter.bat test test\settings_screen_test.dart`: ผ่านครบทุกข้อ (รวม `HelpFaqScreen`)
   - Build split release APK: `app-arm64-v8a-release.apk`, `app-armeabi-v7a-release.apk`, `app-x86_64-release.apk` และติดตั้งลงเครื่องทดสอบ
 
 ### 27 พฤศจิกายน 2026 — จับคู่ teamMemberId + แยก Error 502 จากไม่มีงาน + ตรวจเทสต์ทั้งโปรเจกต์

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../l10n/app_strings.dart';
 import '../services/technician_service.dart';
@@ -297,17 +298,45 @@ class _TechnicianHistoryScreenState extends State<TechnicianHistoryScreen> {
                           ),
                           const SizedBox(height: 10),
                           Text(
-                            AppStrings.t(
-                              'No job reports recorded yet.',
-                              'ยังไม่มีประวัติงานและรายงานช่างในระบบ',
-                              'Tiada sejarah kerja dan laporan lagi.',
-                            ),
+                            _items.isNotEmpty
+                                ? AppStrings.t(
+                                    'No matching reports.',
+                                    'ไม่พบรายงานที่ตรงกับตัวกรอง',
+                                    'Tiada laporan yang sepadan.',
+                                  )
+                                : AppStrings.t(
+                                    'No job reports recorded yet.',
+                                    'ยังไม่มีประวัติงานและรายงานช่างในระบบ',
+                                    'Tiada sejarah kerja dan laporan lagi.',
+                                  ),
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 14,
                               color: AppColors.textSecondary,
                             ),
                           ),
+                          if (_items.isNotEmpty) ...[
+                            const SizedBox(height: 14),
+                            Center(
+                              child: OutlinedButton.icon(
+                                key: const Key('history-reset-filters-button'),
+                                onPressed: () => setState(() {
+                                  _searchController.clear();
+                                  _query = '';
+                                  _onlyMine = false;
+                                  _statusFilter = 'all';
+                                }),
+                                icon: const Icon(Icons.filter_alt_off_rounded),
+                                label: Text(
+                                  AppStrings.t(
+                                    'Reset filters',
+                                    'ล้างตัวกรอง',
+                                    'Tetapkan semula penapis',
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       )
                     : ListView.builder(
@@ -367,12 +396,47 @@ class _TechnicianHistoryScreenState extends State<TechnicianHistoryScreen> {
                         runSpacing: 4,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          Text(
-                            item.jobCode,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.neutral,
+                          InkWell(
+                            borderRadius: BorderRadius.circular(8),
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              Clipboard.setData(
+                                ClipboardData(text: item.jobCode),
+                              );
+                              ScaffoldMessenger.of(context)
+                                ..clearSnackBars()
+                                ..showSnackBar(
+                                  SnackBar(
+                                    behavior: SnackBarBehavior.floating,
+                                    duration: const Duration(seconds: 2),
+                                    content: Text(
+                                      AppStrings.t(
+                                        'Copied ${item.jobCode}',
+                                        'คัดลอก ${item.jobCode} แล้ว',
+                                        'Disalin ${item.jobCode}',
+                                      ),
+                                    ),
+                                  ),
+                                );
+                            },
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  item.jobCode,
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.neutral,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Icon(
+                                  Icons.copy_rounded,
+                                  size: 13,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ],
                             ),
                           ),
                           StatusChip(

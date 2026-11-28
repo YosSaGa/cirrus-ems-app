@@ -712,7 +712,7 @@ class _ShutterButton extends StatelessWidget {
                     height: 28,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.6,
-                      color: AppColors.neutral,
+                      color: AppThemePalette.defaultPalette.neutral,
                     ),
                   )
                 : null,

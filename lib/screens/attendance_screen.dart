@@ -229,7 +229,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       final freshIds = fresh.jobs.map((j) => j.id).toSet();
       final newJobs = prevIds == null
           ? const <TechnicianJob>[]
-          : fresh.jobs.where((j) => !prevIds.contains(j.id)).toList();
+          : fresh.jobs
+                .where((j) => j.isSelectableForCheckIn && !prevIds.contains(j.id))
+                .toList();
 
       setState(() {
         _techData = fresh;
@@ -732,6 +734,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           }
         }
 
+        if (!mounted) return;
         setState(() => _checkInStageLabel = 'Uploading photo...');
 
         try {
@@ -740,42 +743,21 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             uploadRequestId!,
           );
         } on AttendancePhotoUploadException catch (e) {
-          // claude_prompt.txt (v171 §5 "Upload failure: retain the photo
-          // and request metadata for retry"): the photo (file path or,
-          // on Web, the in-memory reference) and the pending record
-          // (with its clientRequestId/uploadRequestId) are already
-          // durably in place from the steps above -- nothing further to
-          // persist here, just surface the error and stop before any
-          // Attendance Event is ever attempted.
+          if (!mounted) return;
           setState(() => _actionError = e.message);
           return;
         } on AttendanceApiException catch (e) {
           if (_redirectIfAuthFailure(e)) return;
-          // claude_prompt.txt (v171 §5 "HTTP 409
-          // ATTENDANCE_PHOTO_UPLOAD_LEASE_HELD: retain pending state and
-          // show a clear retry message. Do not create another upload
-          // identity."): `_messageForApiException` already has a
-          // dedicated case for this errorCode; retaining state is simply
-          // "do nothing more" -- the pending record/photo are already in
-          // place, and the SAME uploadRequestId is reused automatically
-          // on the next tap since it is read back from the record above,
-          // never regenerated.
+          if (!mounted) return;
           setState(() => _actionError = _messageForApiException(e));
           return;
         }
 
-        // claude_prompt.txt (v171 §4 "After receiving storageKey, persist
-        // it immediately before attempting Event submission"): and, on
-        // Web, the in-memory photo is no longer needed for a retry of
-        // THIS attempt from this point on (a later Event-submission
-        // failure recovers via the persisted storageKey alone, never by
-        // re-uploading) -- cleared the instant it is no longer the thing
-        // being retried, so it can never be mistaken for a fresh photo on
-        // some LATER, different attempt.
         await AttendanceService.recordUploadedStorageKey(storageKey);
         if (kIsWeb) _webInMemoryPhoto = null;
       }
 
+      if (!mounted) return;
       setState(() => _checkInStageLabel = 'Submitting attendance...');
 
       final location = await LocationService.captureCurrentLocation();
@@ -788,18 +770,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       await _handleSubmissionResult(result);
     } on AttendanceApiException catch (e) {
       if (_redirectIfAuthFailure(e)) return;
+      if (!mounted) return;
       setState(() => _actionError = _messageForApiException(e));
-      // claude_prompt.txt (v171 §5): a failed upload or event submission
-      // must retain the pending request so the UI offers "Retry" -- the
-      // record in SharedPreferences is already retained by this point,
-      // but `_pendingLookup` (what the UI actually renders from) is only
-      // refreshed by reloading it.
       await _loadPendingOnly();
     } on MalformedPendingRequestException catch (_) {
       await _loadPendingOnly();
     } on StateError catch (_) {
       await _loadPendingOnly();
     } catch (e) {
+      if (!mounted) return;
       setState(() => _actionError = _genericErrorMessage(e));
     } finally {
       if (mounted) {
@@ -821,6 +800,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
     try {
       final outcome = await AttendanceService.discardMalformedPendingRequest();
+      if (!mounted) return;
       if (outcome == DiscardPendingRequestOutcome.busy) {
         setState(() {
           _actionError =
@@ -829,6 +809,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       }
       await _loadPendingOnly();
     } catch (e) {
+      if (!mounted) return;
       setState(() => _actionError = _genericErrorMessage(e));
     } finally {
       if (mounted) setState(() => _actionInProgress = false);
@@ -897,21 +878,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           }
           break;
         case ResolvePendingCheckoutOutcome.busy:
+          if (!mounted) return;
           setState(() {
             _actionError = 'Another attendance action is already in progress. Please wait.';
           });
           break;
       }
     } on AttendanceApiException catch (e) {
-      // claude_prompt.txt (v117 §3): APP_ATTENDANCE_PENDING_CHECKOUT_ALREADY_RESOLVED
-      // is no longer thrown by AttendanceService.resolvePendingCheckout
-      // at all -- it is converted into
-      // ResolvePendingCheckoutOutcome.alreadyResolved above, with its own
-      // cleanup already performed using the correctly-captured userId.
-      // Every exception reaching this branch is therefore some OTHER
-      // error code (or an authentication failure), handled exactly as
-      // before.
       if (_redirectIfAuthFailure(e)) return;
+      if (!mounted) return;
 
       setState(() => _actionError = _messageForApiException(e));
 
@@ -920,14 +895,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         await _refreshStatusOnly();
       }
     } on MalformedPendingCheckoutRequestIdException catch (e) {
-      // claude_prompt.txt (v116 §4): a stored, non-UUID request id for
-      // this work date -- no HTTP request was sent (AttendanceService
-      // never reaches the POST call for this case), and the malformed
-      // value itself was neither overwritten nor deleted. Surfaced
-      // explicitly rather than falling through to the generic branch
-      // below, so this specific condition is named clearly.
+      if (!mounted) return;
       setState(() => _actionError = e.message);
     } catch (e) {
+      if (!mounted) return;
       setState(() => _actionError = _genericErrorMessage(e));
     } finally {
       if (mounted) setState(() => _actionInProgress = false);
@@ -947,6 +918,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         await _loadPendingOnly();
         break;
       case AttendanceSubmissionOutcome.busy:
+        if (!mounted) return;
         setState(() {
           _actionError =
               'Another attendance action is already in progress. Please wait.';
@@ -1730,6 +1702,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         jobSource: active.jobSource,
         jobCode: active.jobCode,
         jobTitle: active.jobTitle,
+        vesselName: active.vesselName,
         status: 'completed',
         checkInAt: active.checkInAt,
         checkOutAt:
@@ -2150,8 +2123,23 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       );
       if (!mounted) return;
       unawaited(WorkTimerNotificationService.cancel());
+      final completedSession = TechnicianWorkSession(
+        id: breakSession.id,
+        jobId: breakSession.jobId,
+        jobSource: breakSession.jobSource,
+        jobCode: breakSession.jobCode,
+        jobTitle: breakSession.jobTitle,
+        vesselName: breakSession.vesselName,
+        status: 'completed',
+        checkInAt: breakSession.checkInAt,
+        checkOutAt: DateTime.now().toIso8601String(),
+        durationMinutes: breakSession.durationMinutes,
+        checkInLatitude: breakSession.checkInLatitude,
+        checkInLongitude: breakSession.checkInLongitude,
+        jobStatusAtCheckout: selectedJobStatus,
+      );
       setState(() => _actionInProgress = false);
-      await _openTechnicianReport(breakSession);
+      await _openTechnicianReport(completedSession);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -2177,13 +2165,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               (latestCounted != null &&
                   latestCounted['workDate']?.toString() == currentWorkDate &&
                   latestCounted['windowCode']?.toString() == currentWindowCode));
+      final hasPendingAttendance =
+          _pendingLookup != null &&
+          _pendingLookup!.state != PendingAttendanceRequestState.absent;
       final canScanAttendanceDirectly =
           windowInfo != null &&
           !windowAlreadyCompleted &&
-          (_pendingLookup == null ||
-              _pendingLookup!.state == PendingAttendanceRequestState.absent);
+          !hasPendingAttendance;
 
-      return TechnicianJobActionZone(
+      final techZone = TechnicianJobActionZone(
         data: _techData,
         selectedJob: _selectedTechJob,
         actionInProgress: _actionInProgress,
@@ -2217,6 +2207,87 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         onResumeFromBreak: _technicianResumeFromBreak,
         onEndFromBreak: _technicianEndFromBreak,
         onWriteReport: _openTechnicianReport,
+      );
+      if (!hasPendingAttendance) return techZone;
+
+      final isMalformed =
+          _pendingLookup!.state == PendingAttendanceRequestState.malformed;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            key: const Key('technician-pending-attendance-card'),
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: isMalformed
+                  ? AppColors.errorContainer
+                  : AppColors.warningContainer,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: isMalformed ? AppColors.error : AppColors.warning,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  isMalformed
+                      ? AppStrings.t(
+                          'Pending attendance data is corrupted',
+                          'ข้อมูลสแกนลงเวลาค้างในเครื่องเสียหาย',
+                          'Data kehadiran tertunda rosak',
+                        )
+                      : AppStrings.t(
+                          'Pending attendance scan waiting to retry',
+                          'มีรายการสแกนลงเวลาค้างรอส่งซ้ำ',
+                          'Imbasan kehadiran tertunda menunggu cubaan semula',
+                        ),
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.neutral,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton(
+                        key: const Key('technician-pending-retry-or-discard'),
+                        onPressed: _actionInProgress
+                            ? null
+                            : (isMalformed
+                                  ? _discard
+                                  : () => _checkIn(
+                                      windowCode: currentWindowCode ?? '',
+                                    )),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.neutral,
+                          foregroundColor: AppColors.onNeutral,
+                        ),
+                        child: Text(
+                          isMalformed
+                              ? AppStrings.t(
+                                  'Discard',
+                                  'ล้างข้อมูลค้าง',
+                                  'Buang',
+                                )
+                              : AppStrings.t(
+                                  'Retry Scan',
+                                  'ส่งสแกนซ้ำ',
+                                  'Cuba Lagi',
+                                ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          techZone,
+        ],
       );
     }
     return Column(
@@ -2438,7 +2509,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                       ? Icons.remove_rounded
                       : info.icon,
                   size: 17,
-                  color: current ? AppColors.neutral : foreground,
+                  color: current ? AppColors.timeActionForeground : foreground,
                 ),
               ),
               Expanded(

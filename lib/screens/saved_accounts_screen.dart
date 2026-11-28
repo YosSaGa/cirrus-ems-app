@@ -198,14 +198,15 @@ class _SavedAccountsScreenState extends State<SavedAccountsScreen> {
                                             ),
                                           ),
                                         leading: CircleAvatar(
-                                          backgroundColor: AppColors.neutral,
+                                          backgroundColor:
+                                              AppColors.avatarBackground,
                                           child: Text(
                                             account.name.isNotEmpty
                                                 ? account.name.characters.first
                                                       .toUpperCase()
                                                 : 'U',
                                             style: TextStyle(
-                                              color: AppColors.secondary,
+                                              color: AppColors.avatarForeground,
                                               fontWeight: FontWeight.w800,
                                             ),
                                           ),

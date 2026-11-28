@@ -9,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../widgets/fade_slide_entry.dart';
 import 'appearance_settings_screen.dart';
 import 'device_check_screen.dart';
+import 'help_faq_screen.dart';
 import 'language_settings_screen.dart';
 import 'payroll_management_screen.dart';
 import 'storage_cache_screen.dart';
@@ -444,12 +445,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       FadeSlideEntry(
                         yOffset: 18,
                         child: _groupCard([
+                          KeyedSubtree(
+                            key: const Key('settings-help-faq-tile'),
+                            child: _settingsItem(
+                              icon: Icons.help_outline_rounded,
+                              title: AppStrings.t(
+                                'Help & FAQ',
+                                'คู่มือ & คำถามที่พบบ่อย',
+                                'Bantuan & Soalan Lazim',
+                              ),
+                              subtitle: AppStrings.t(
+                                'Quick guide & common questions',
+                                'วิธีใช้งานแอปและคำถามที่พบบ่อย',
+                                'Panduan ringkas & soalan lazim',
+                              ),
+                              trailing: Icon(
+                                Icons.chevron_right_rounded,
+                                color: AppColors.textSecondary,
+                                size: 22,
+                              ),
+                              onTap: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => const HelpFaqScreen(),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          Divider(height: 1, color: AppColors.cardBorder),
                           _settingsItem(
                             icon: Icons.info_outline_rounded,
                             title: 'Cirrus EMS',
                             subtitle: AppStrings.t(
-                              'Version 1.0.0 (Build 2026.11)',
-                              'เวอร์ชัน 1.0.0 (Build 2026.11)',
+                              'Version 1.0.0-beta (Build 2026.11)',
+                              'เวอร์ชัน 1.0.0-beta (Build 2026.11)',
+                              'Versi 1.0.0-beta (Build 2026.11)',
                             ),
                           ),
                         ]),

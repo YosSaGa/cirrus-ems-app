@@ -771,18 +771,81 @@ class TechnicianService {
     return dt.year == now.year && dt.month == now.month && dt.day == now.day;
   }
 
+  static Uri _paginatedUri(String path, int page, int limit) {
+    final baseUri = Uri.parse('${AuthService.baseUrl}$path');
+    final params = Map<String, String>.from(baseUri.queryParameters);
+    params.putIfAbsent('limit', () => '$limit');
+    if (page > 1) {
+      params['page'] = '$page';
+    }
+    return baseUri.replace(queryParameters: params);
+  }
+
+  static int? _extractTotalPages(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map) {
+        final direct = decoded['totalPages'] ?? decoded['total_pages'];
+        if (direct is num) return direct.toInt();
+        final meta = decoded['meta'] ?? decoded['pagination'];
+        if (meta is Map) {
+          final mTotal = meta['totalPages'] ?? meta['total_pages'];
+          if (mTotal is num) return mTotal.toInt();
+        }
+        if (decoded['hasNextPage'] == true || decoded['has_next_page'] == true) {
+          return 2;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static Future<List<Map<String, dynamic>>> _getPaginatedList(
+    http.Client client,
+    Map<String, String> headers,
+    String path, {
+    bool throwOnError = false,
+  }) async {
+    const pageSize = 200;
+    const maxPages = 5;
+    final all = <Map<String, dynamic>>[];
+
+    for (var page = 1; page <= maxPages; page++) {
+      final res = await client
+          .get(_paginatedUri(path, page, pageSize), headers: headers)
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        if (throwOnError && page == 1) {
+          final errBody = _decodeJson(res);
+          throw TechnicianApiException(
+            statusCode: res.statusCode,
+            message:
+                errBody['message']?.toString() ??
+                'Request failed (${res.statusCode}).',
+          );
+        }
+        break;
+      }
+      final items = _extractList(res.body);
+      all.addAll(items);
+      final totalPages = _extractTotalPages(res.body);
+      if (totalPages != null) {
+        if (page >= totalPages) break;
+      } else if (items.length < pageSize) {
+        break;
+      }
+      if (items.isEmpty) break;
+    }
+    return all;
+  }
+
   static Future<List<Map<String, dynamic>>> _safeGetList(
     http.Client client,
     Map<String, String> headers,
     String path,
   ) async {
     try {
-      final res = await client
-          .get(Uri.parse('${AuthService.baseUrl}$path'), headers: headers)
-          .timeout(const Duration(seconds: 15));
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        return _extractList(res.body);
-      }
+      return await _getPaginatedList(client, headers, path);
     } catch (_) {}
     return const <Map<String, dynamic>>[];
   }
@@ -791,19 +854,12 @@ class TechnicianService {
     http.Client client,
     Map<String, String> headers,
   ) async {
-    final ordersRes = await client
-        .get(Uri.parse('${AuthService.baseUrl}/work-orders'), headers: headers)
-        .timeout(const Duration(seconds: 15));
-    if (ordersRes.statusCode < 200 || ordersRes.statusCode >= 300) {
-      final errBody = _decodeJson(ordersRes);
-      throw TechnicianApiException(
-        statusCode: ordersRes.statusCode,
-        message:
-            errBody['message']?.toString() ??
-            'Failed to load work orders (${ordersRes.statusCode}).',
-      );
-    }
-    final rawOrders = _extractList(ordersRes.body);
+    final rawOrders = await _getPaginatedList(
+      client,
+      headers,
+      '/work-orders',
+      throwOnError: true,
+    );
 
     final user = await AuthService.getSavedUser();
     final currentUserId = user?['id']?.toString().trim();
@@ -863,9 +919,12 @@ class TechnicianService {
       if (id != null) projectById[id] = p;
     }
 
-    // Map assignments -> which workOrderIds belong to current user
+    // Map assignments -> which workOrderIds belong to current user +
+    // forward-compatible 004_db_first_alignment dispatch metadata.
     final myAssignedOrderIds = <String>{};
     final assignedNameByOrder = <String, String>{};
+    final assignMetaByOrder = <String, Map<String, String>>{};
+    final assignMetaFromMine = <String>{};
     void registerAssignment(Map<String, dynamic> a, {String? fallbackOrderId}) {
       final woId =
           _pickStr(a, const ['workOrderId', 'work_order_id', 'jobId']) ??
@@ -876,6 +935,8 @@ class TechnicianService {
           _pickStr(a, const [
             'userId',
             'user_id',
+            'teamMemberId',
+            'team_member_id',
             'employeeId',
             'employee_id',
             'technicianId',
@@ -906,12 +967,35 @@ class TechnicianService {
       if (empName != null && !assignedNameByOrder.containsKey(woId)) {
         assignedNameByOrder[woId] = empName;
       }
-      if (empId != null && userIds.contains(empId)) {
+      final isForCurrentUser = empId != null && userIds.contains(empId);
+      if (isForCurrentUser) {
         myAssignedOrderIds.add(woId);
         if (currentUserName != null &&
             currentUserName.isNotEmpty &&
             !assignedNameByOrder.containsKey(woId)) {
           assignedNameByOrder[woId] = currentUserName;
+        }
+      }
+
+      if (isForCurrentUser || !assignMetaFromMine.contains(woId)) {
+        final meta = Map<String, String>.from(
+          assignMetaByOrder[woId] ?? const <String, String>{},
+        );
+        final aJobCode = _pickStr(a, const ['jobCode', 'job_code']);
+        final aShiftDate = _pickStr(a, const ['shiftDate', 'shift_date']);
+        final aStartTime = _pickStr(a, const ['startTime', 'start_time']);
+        final aEndTime = _pickStr(a, const ['endTime', 'end_time']);
+        final aLocation = _pickStr(a, const ['location', 'siteName', 'site_name']);
+        final aTaskDesc = _pickStr(a, const ['taskDescription', 'task_description']);
+        if (aJobCode != null) meta['jobCode'] = aJobCode;
+        if (aShiftDate != null) meta['shiftDate'] = aShiftDate;
+        if (aStartTime != null) meta['startTime'] = aStartTime;
+        if (aEndTime != null) meta['endTime'] = aEndTime;
+        if (aLocation != null) meta['location'] = aLocation;
+        if (aTaskDesc != null) meta['taskDescription'] = aTaskDesc;
+        if (meta.isNotEmpty) {
+          assignMetaByOrder[woId] = meta;
+          if (isForCurrentUser) assignMetaFromMine.add(woId);
         }
       }
     }
@@ -1104,40 +1188,58 @@ class TechnicianService {
               ? currentUserName
               : null);
 
+      final assignMeta = assignMetaByOrder[id];
+      final effectiveCode = assignMeta?['jobCode'] ?? code;
+      final effectiveDesc = desc.isNotEmpty
+          ? desc
+          : (assignMeta?['taskDescription'] ?? '');
+      final effectiveLocation = location ?? assignMeta?['location'];
+      final woScheduleStart = _pickStr(wo, const [
+        'scheduleStart',
+        'schedule_start',
+        'scheduledStart',
+        'scheduled_start',
+        'startDate',
+        'start_date',
+        'scheduledDate',
+        'scheduled_date',
+        'dueDate',
+        'due_date',
+      ]);
+      final woScheduleEnd = _pickStr(wo, const [
+        'scheduleEnd',
+        'schedule_end',
+        'scheduledEnd',
+        'scheduled_end',
+        'endDate',
+        'end_date',
+      ]);
+      final shiftDate = assignMeta?['shiftDate'];
+      final startTime = assignMeta?['startTime'];
+      final endTime = assignMeta?['endTime'];
+      final effectiveScheduleStart = woScheduleStart ??
+          (shiftDate != null
+              ? '$shiftDate${startTime != null ? ' $startTime' : ''}'
+              : null);
+      final effectiveScheduleEnd = woScheduleEnd ??
+          (shiftDate != null && endTime != null ? '$shiftDate $endTime' : null);
+
       final job = TechnicianJob(
         id: id,
-        jobCode: code,
+        jobCode: effectiveCode,
         title: title,
-        description: desc,
+        description: effectiveDesc,
         status: status,
         priority: priority,
         jobSource: 'work_order',
         projectId: projectId,
         projectName: projectName,
         vesselName: vesselName,
-        location: location,
+        location: effectiveLocation,
         isMine: isMine,
         assignedToName: directAssigneeName,
-        scheduleStart: _pickStr(wo, const [
-          'scheduleStart',
-          'schedule_start',
-          'scheduledStart',
-          'scheduled_start',
-          'startDate',
-          'start_date',
-          'scheduledDate',
-          'scheduled_date',
-          'dueDate',
-          'due_date',
-        ]),
-        scheduleEnd: _pickStr(wo, const [
-          'scheduleEnd',
-          'schedule_end',
-          'scheduledEnd',
-          'scheduled_end',
-          'endDate',
-          'end_date',
-        ]),
+        scheduleStart: effectiveScheduleStart,
+        scheduleEnd: effectiveScheduleEnd,
       );
       orderById[id] = job;
       jobs.add(job);
@@ -2272,7 +2374,10 @@ class TechnicianService {
     http.Client client,
     Map<String, String> headers,
   ) async {
+    final user = await AuthService.getSavedUser();
+    final currentUserId = user?['id']?.toString().trim();
     final userIds = await _currentUserIds();
+    final nameTokens = await _currentUserNameTokens();
     final roles = await AuthService.getSavedRoles();
     final isAdmin = roles.any((r) => r.trim().toLowerCase() == 'admin');
 
@@ -2280,10 +2385,24 @@ class TechnicianService {
       _safeGetList(client, headers, '/work-sessions'),
       _safeGetList(client, headers, '/technician-reports'),
       _safeGetList(client, headers, '/work-orders'),
+      _safeGetList(client, headers, '/team-members'),
     ]);
     final rawSessions = results[0];
     final rawReports = results[1];
     final rawOrders = results[2];
+    final rawTeamMembers = results[3];
+
+    final resolvedTeamMemberId = _resolveTeamMemberFromList(
+      rawTeamMembers,
+      userIds,
+      nameTokens,
+    );
+    if (resolvedTeamMemberId != null &&
+        currentUserId != null &&
+        currentUserId.isNotEmpty) {
+      _cachedTeamMemberUserId = currentUserId;
+      _cachedTeamMemberId = resolvedTeamMemberId;
+    }
 
     final orderMap = <String, Map<String, dynamic>>{};
     for (final o in rawOrders) {

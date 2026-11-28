@@ -72,35 +72,41 @@ class _EarningsTrialTabState extends State<EarningsTrialTab>
   );
 
   Future<void> _loadPayrollConfig() async {
-    final cfg = await PayrollService.getMyPayrollConfig();
-    if (!mounted) return;
-    final rateChanged =
-        cfg.hourlyRate != _directHourlyRate ||
-        (cfg.salary != null && cfg.salary != _baseSalary);
-    setState(() {
-      _directHourlyRate = cfg.hourlyRate;
-      if (cfg.salary != null) _baseSalary = cfg.salary;
-      if (cfg.department != null && (_department == null || _department!.isEmpty)) {
-        _department = cfg.department;
-      }
-      if (cfg.employmentType != null &&
-          (_employmentType == null || _employmentType!.isEmpty)) {
-        _employmentType = cfg.employmentType;
-      }
-      if (cfg.startDate != null && (_startDate == null || _startDate!.isEmpty)) {
-        _startDate = cfg.startDate;
-      }
-      _payrollItems = cfg.items;
-      if (rateChanged && _estimate != null) {
-        _estimate = calculateScanPay(
-          _lastScans,
-          DateTime(_cycle.year, _cycle.month),
-          _activePaySettings,
-          periodStart: _cycle.start,
-          periodEnd: _cycle.end,
-        );
-      }
-    });
+    try {
+      final cfg = await PayrollService.getMyPayrollConfig();
+      if (!mounted) return;
+      final rateChanged =
+          cfg.hourlyRate != _directHourlyRate ||
+          (cfg.salary != null && cfg.salary != _baseSalary);
+      setState(() {
+        _directHourlyRate = cfg.hourlyRate;
+        if (cfg.salary != null) _baseSalary = cfg.salary;
+        if (cfg.department != null &&
+            (_department == null || _department!.isEmpty)) {
+          _department = cfg.department;
+        }
+        if (cfg.employmentType != null &&
+            (_employmentType == null || _employmentType!.isEmpty)) {
+          _employmentType = cfg.employmentType;
+        }
+        if (cfg.startDate != null &&
+            (_startDate == null || _startDate!.isEmpty)) {
+          _startDate = cfg.startDate;
+        }
+        _payrollItems = cfg.items;
+        if (rateChanged && _estimate != null) {
+          _estimate = calculateScanPay(
+            _lastScans,
+            DateTime(_cycle.year, _cycle.month),
+            _activePaySettings,
+            periodStart: _cycle.start,
+            periodEnd: _cycle.end,
+          );
+        }
+      });
+    } catch (_) {
+      // Preserve existing fallback/cached pay settings if config endpoint fails.
+    }
   }
 
   void _applyUserMap(Map<String, dynamic> user) {
@@ -217,7 +223,7 @@ class _EarningsTrialTabState extends State<EarningsTrialTab>
     final estimate = _estimate;
     return RefreshIndicator(
       color: AppColors.secondary,
-      onRefresh: _calculate,
+      onRefresh: () => Future.wait([_loadPayrollConfig(), _calculate()]),
       child: SingleChildScrollView(
         primary: true,
         physics: const AlwaysScrollableScrollPhysics(),

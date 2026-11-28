@@ -53,14 +53,19 @@ class WorkTimerNotificationService {
 
     final key = '${session.id}|$startMillis|$title|$body';
     if (_lastKey == key) return;
-    _lastKey = key;
 
     try {
-      await _channel.invokeMethod<bool>('showWorkTimer', <String, dynamic>{
-        'title': title,
-        'body': body,
-        'startEpochMillis': startMillis,
-      });
+      final shown = await _channel.invokeMethod<bool>(
+        'showWorkTimer',
+        <String, dynamic>{
+          'title': title,
+          'body': body,
+          'startEpochMillis': startMillis,
+        },
+      );
+      if (shown == true) {
+        _lastKey = key;
+      }
     } on MissingPluginException {
       // Ignored in widget tests or platforms without the native channel.
     } on PlatformException {

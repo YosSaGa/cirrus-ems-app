@@ -2,9 +2,29 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../l10n/app_strings.dart';
+import '../services/auth_service.dart';
 import '../services/technician_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ambient_panel.dart';
+
+List<String> _parseCrewNames(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return const [];
+  final seen = <String>{};
+  final names = <String>[];
+  for (final part in raw.split(',')) {
+    final trimmed = part.trim();
+    if (trimmed.isEmpty) continue;
+    final key = trimmed.toLowerCase();
+    if (seen.add(key)) names.add(trimmed);
+  }
+  return names;
+}
+
+String _formatCompactCrew(List<String> names) {
+  if (names.isEmpty) return '';
+  if (names.length <= 2) return names.join(', ');
+  return '${names[0]}, ${names[1]} +${names.length - 2}';
+}
 
 /// Result returned from [TechnicianJobsScreen] / [TechnicianJobDetailScreen].
 class TechnicianJobSelectionResult {
@@ -382,17 +402,35 @@ class _TechnicianJobsScreenState extends State<TechnicianJobsScreen> {
   }
 
   Widget _priorityPill(String priority) {
-    final p = priority.toLowerCase();
-    final isUrgent = p == 'high' || p == 'urgent' || p == 'critical';
+    final p = priority.trim().toLowerCase();
+    final Color tint;
+    final Color textColor;
+    switch (p) {
+      case 'urgent':
+      case 'critical':
+        tint = const Color(0xFFEF4444);
+        textColor = Colors.red.shade100;
+        break;
+      case 'high':
+        tint = const Color(0xFFF97316);
+        textColor = Colors.orange.shade100;
+        break;
+      case 'medium':
+        tint = const Color(0xFF38BDF8);
+        textColor = Colors.lightBlue.shade100;
+        break;
+      default:
+        tint = Colors.white;
+        textColor = Colors.white.withValues(alpha: 0.9);
+    }
+    final hasAccent = p == 'urgent' || p == 'critical' || p == 'high' || p == 'medium';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
-        color: isUrgent
-            ? AppColors.warning.withValues(alpha: 0.28)
-            : Colors.white.withValues(alpha: 0.14),
+        color: tint.withValues(alpha: hasAccent ? 0.24 : 0.14),
         borderRadius: BorderRadius.circular(AppRadius.pill),
-        border: isUrgent
-            ? Border.all(color: AppColors.warning.withValues(alpha: 0.85))
+        border: hasAccent
+            ? Border.all(color: tint.withValues(alpha: 0.85))
             : null,
       ),
       child: Text(
@@ -400,7 +438,7 @@ class _TechnicianJobsScreenState extends State<TechnicianJobsScreen> {
         style: TextStyle(
           fontSize: 10.5,
           fontWeight: FontWeight.w800,
-          color: isUrgent ? Colors.amber.shade100 : Colors.white,
+          color: textColor,
         ),
       ),
     );
@@ -508,7 +546,7 @@ class _TechnicianJobsScreenState extends State<TechnicianJobsScreen> {
                               const SizedBox(width: 6),
                               Flexible(
                                 child: Text(
-                                  '· ${job.assignedToName}',
+                                  '· ${_formatCompactCrew(_parseCrewNames(job.assignedToName))}',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
@@ -690,12 +728,68 @@ class _TechnicianJobsScreenState extends State<TechnicianJobsScreen> {
                         const SizedBox(width: 6),
                         _priorityPill(job.priority),
                         const Spacer(),
-                        if (isSelected)
+                        InkWell(
+                          key: Key('job-details-${job.jobCode}'),
+                          borderRadius: BorderRadius.circular(AppRadius.pill),
+                          onTap: () async {
+                            HapticFeedback.selectionClick();
+                            final nav = Navigator.of(context);
+                            final res = await nav
+                                .push<TechnicianJobSelectionResult>(
+                                  MaterialPageRoute(
+                                    builder: (_) => TechnicianJobDetailScreen(
+                                      job: job,
+                                      isSelected: isSelected,
+                                    ),
+                                  ),
+                                );
+                            if (res != null && mounted) {
+                              nav.pop(res);
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.14),
+                              borderRadius:
+                                  BorderRadius.circular(AppRadius.pill),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.info_outline_rounded,
+                                  size: 13,
+                                  color: Colors.white,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  AppStrings.t(
+                                    'Details',
+                                    'รายละเอียด',
+                                    'Butiran',
+                                  ),
+                                  style: const TextStyle(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (isSelected) ...[
+                          const SizedBox(width: 6),
                           Icon(
                             Icons.check_circle_rounded,
                             size: 22,
                             color: AppColors.secondary,
                           ),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -778,7 +872,9 @@ class _TechnicianJobsScreenState extends State<TechnicianJobsScreen> {
                               _heroDetailRow(
                                 Icons.people_outline_rounded,
                                 AppStrings.t('Tech', 'ช่าง', 'Juruteknik'),
-                                job.assignedToName!,
+                                _formatCompactCrew(
+                                  _parseCrewNames(job.assignedToName),
+                                ),
                               ),
                             if (job.projectName != null &&
                                 job.projectName!.isNotEmpty &&
@@ -859,6 +955,7 @@ class TechnicianJobDetailScreen extends StatefulWidget {
 
 class _TechnicianJobDetailScreenState extends State<TechnicianJobDetailScreen> {
   late TechnicianJob _job = widget.job;
+  String? _currentUserName;
 
   TechnicianJob get job => _job;
   bool get isSelected => widget.isSelected;
@@ -866,7 +963,17 @@ class _TechnicianJobDetailScreenState extends State<TechnicianJobDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _loadCurrentUser();
     _loadFullDetail();
+  }
+
+  Future<void> _loadCurrentUser() async {
+    final user = await AuthService.getSavedUser();
+    if (!mounted) return;
+    final name = user?['name']?.toString().trim();
+    if (name != null && name.isNotEmpty) {
+      setState(() => _currentUserName = name);
+    }
   }
 
   Future<void> _loadFullDetail() async {
@@ -1061,23 +1168,6 @@ class _TechnicianJobDetailScreenState extends State<TechnicianJobDetailScreen> {
                             const Divider(height: 20),
                           ],
                           _metaRow(
-                            Icons.person_outline,
-                            AppStrings.t(
-                              'Assigned Technician',
-                              'ผู้รับผิดชอบ',
-                              'Juruteknik',
-                            ),
-                            job.assignedToName ??
-                                (job.isMine
-                                    ? AppStrings.t('You', 'คุณ', 'Anda')
-                                    : AppStrings.t(
-                                        'Unassigned',
-                                        'ยังไม่ระบุ',
-                                        'Belum ditetapkan',
-                                      )),
-                          ),
-                          const Divider(height: 20),
-                          _metaRow(
                             Icons.calendar_today_outlined,
                             AppStrings.t('Schedule', 'กำหนดการ', 'Jadual'),
                             scheduleText,
@@ -1100,6 +1190,8 @@ class _TechnicianJobDetailScreenState extends State<TechnicianJobDetailScreen> {
                         ],
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    _assignedCrewCard(),
                     if (job.hasVesselOrEquipmentDetails) ...[
                       const SizedBox(height: 12),
                       KeyedSubtree(
@@ -1300,9 +1392,167 @@ class _TechnicianJobDetailScreenState extends State<TechnicianJobDetailScreen> {
     ),
   );
 
+  Widget _assignedCrewCard() {
+    final parsed = _parseCrewNames(job.assignedToName);
+    final crew = parsed.isNotEmpty
+        ? parsed
+        : (job.isMine
+              ? <String>[_currentUserName ?? AppStrings.t('You', 'คุณ', 'Anda')]
+              : const <String>[]);
+    final title = crew.isNotEmpty
+        ? AppStrings.t(
+            'ASSIGNED CREW (${crew.length})',
+            'ทีมช่างที่รับผิดชอบ (${crew.length} คน)',
+            'PASUKAN DITUGASKAN (${crew.length})',
+          )
+        : AppStrings.t(
+            'ASSIGNED CREW',
+            'ทีมช่างที่รับผิดชอบ',
+            'PASUKAN DITUGASKAN',
+          );
+
+    bool isMe(String name) {
+      if (crew.length == 1 && job.isMine) return true;
+      final me = _currentUserName?.trim().toLowerCase();
+      if (me == null || me.isEmpty) return false;
+      final n = name.trim().toLowerCase();
+      return n == me || n.contains(me) || me.contains(n);
+    }
+
+    return Container(
+      key: const Key('job-assigned-crew-card'),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.surface),
+        border: Border.all(color: AppColors.cardBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.groups_rounded,
+                size: 16,
+                color: AppColors.secondary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (crew.isEmpty)
+            Text(
+              AppStrings.t('Unassigned', 'ยังไม่ระบุช่าง', 'Belum ditetapkan'),
+              style: TextStyle(fontSize: 13.5, color: AppColors.textSecondary),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final member in crew)
+                  Builder(
+                    builder: (_) {
+                      final mine = isMe(member);
+                      final initial = member.isNotEmpty
+                          ? member.characters.first.toUpperCase()
+                          : '?';
+                      return Container(
+                        padding: const EdgeInsets.fromLTRB(6, 5, 10, 5),
+                        decoration: BoxDecoration(
+                          color: mine
+                              ? AppColors.secondary.withValues(alpha: 0.14)
+                              : AppColors.primary,
+                          borderRadius: BorderRadius.circular(AppRadius.pill),
+                          border: Border.all(
+                            color: mine
+                                ? AppColors.secondary
+                                : AppColors.cardBorder,
+                            width: mine ? 1.3 : 1.0,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircleAvatar(
+                              radius: 12,
+                              backgroundColor: mine
+                                  ? AppColors.avatarBackground
+                                  : AppColors.secondary.withValues(alpha: 0.2),
+                              child: Text(
+                                initial,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  color: mine
+                                      ? AppColors.avatarForeground
+                                      : AppColors.neutral,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 7),
+                            Text(
+                              member,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: mine
+                                    ? FontWeight.w800
+                                    : FontWeight.w600,
+                                color: AppColors.neutral,
+                              ),
+                            ),
+                            if (mine) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 1.5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.neutral,
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadius.pill,
+                                  ),
+                                ),
+                                child: Text(
+                                  AppStrings.t('YOU', 'คุณ', 'ANDA'),
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.onNeutral,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _metaRow(IconData icon, String label, String value) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Icon(icon, size: 18, color: AppColors.textSecondary),
+      Padding(
+        padding: const EdgeInsets.only(top: 1),
+        child: Icon(icon, size: 18, color: AppColors.textSecondary),
+      ),
       const SizedBox(width: 10),
       Expanded(
         child: Text(
@@ -1310,12 +1560,18 @@ class _TechnicianJobDetailScreenState extends State<TechnicianJobDetailScreen> {
           style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
         ),
       ),
-      Text(
-        value,
-        style: TextStyle(
-          fontSize: 13.5,
-          fontWeight: FontWeight.w700,
-          color: AppColors.neutral,
+      const SizedBox(width: 12),
+      Flexible(
+        child: Text(
+          value,
+          textAlign: TextAlign.end,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w700,
+            color: AppColors.neutral,
+          ),
         ),
       ),
     ],

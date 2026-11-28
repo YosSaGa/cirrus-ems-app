@@ -231,14 +231,14 @@ class _LoginScreenState extends State<LoginScreen> {
                       children: [
                         CircleAvatar(
                           radius: 20,
-                          backgroundColor: AppColors.neutral,
+                          backgroundColor: AppColors.avatarBackground,
                           child: Text(
                             _lockedAccount!.name.isNotEmpty
                                 ? _lockedAccount!.name.characters.first
                                       .toUpperCase()
                                 : 'U',
                             style: TextStyle(
-                              color: AppColors.secondary,
+                              color: AppColors.avatarForeground,
                               fontWeight: FontWeight.w800,
                             ),
                           ),

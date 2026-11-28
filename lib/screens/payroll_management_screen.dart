@@ -646,8 +646,10 @@ class _EmployeePayrollEditorScreenState
       }
     }
 
-    final saved = await showDialog<bool>(
-      context: context,
+    bool? saved;
+    try {
+      saved = await showDialog<bool>(
+        context: context,
       builder: (dialogCtx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
           backgroundColor: AppColors.surface,
@@ -874,10 +876,16 @@ class _EmployeePayrollEditorScreenState
               },
               child: Text(AppStrings.t('Save', 'บันทึก')),
             ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      nameCtrl.dispose();
+      amountCtrl.dispose();
+      capCtrl.dispose();
+      notesCtrl.dispose();
+    }
 
     if (saved == true) {
       HapticFeedback.lightImpact();

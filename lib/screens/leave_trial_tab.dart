@@ -531,12 +531,12 @@ class _LeaveTrialTabState extends State<LeaveTrialTab>
                                       ? null
                                       : _save,
                                   icon: _busy
-                                      ? const SizedBox(
+                                      ? SizedBox(
                                           width: 18,
                                           height: 18,
                                           child: CircularProgressIndicator(
                                             strokeWidth: 2,
-                                            color: Colors.white,
+                                            color: AppColors.onNeutral,
                                           ),
                                         )
                                       : const Icon(Icons.save_outlined),

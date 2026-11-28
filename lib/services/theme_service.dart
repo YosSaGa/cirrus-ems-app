@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'app_preferences_service.dart';
+
 /// Available app themes.
 enum AppThemeMode {
   defaultTheme('default', 'Cirrus Signature', 'Navy 30% • Off-white 60% • Teal 10%'),
@@ -145,7 +147,6 @@ class ThemeService {
   static const String _prefKey = 'ems.themeMode';
   static const String _payCardStylePrefKey = 'ems.payCardStyle';
   static const String _textScalePrefKey = 'ems.textScale';
-  static const String _hapticsPrefKey = 'ems.hapticsEnabled';
 
   /// ValueNotifier holding the current theme mode.
   static final ValueNotifier<AppThemeMode> themeModeNotifier =
@@ -160,9 +161,8 @@ class ThemeService {
       ValueNotifier<AppTextScale>(AppTextScale.normal);
 
   /// ValueNotifier holding whether haptic feedback is enabled.
-  static final ValueNotifier<bool> hapticsEnabledNotifier = ValueNotifier<bool>(
-    true,
-  );
+  static ValueNotifier<bool> get hapticsEnabledNotifier =>
+      AppPreferencesService.hapticsEnabledNotifier;
 
   /// Current active theme mode.
   static AppThemeMode get currentMode => themeModeNotifier.value;
@@ -174,7 +174,7 @@ class ThemeService {
   static AppTextScale get currentTextScale => textScaleNotifier.value;
 
   /// Whether haptic feedback is currently enabled.
-  static bool get hapticsEnabled => hapticsEnabledNotifier.value;
+  static bool get hapticsEnabled => AppPreferencesService.hapticsEnabled;
 
   /// Loads saved appearance preferences from [SharedPreferences].
   static Future<void> init() async {
@@ -187,13 +187,12 @@ class ThemeService {
       textScaleNotifier.value = AppTextScale.fromKey(
         prefs.getString(_textScalePrefKey),
       );
-      hapticsEnabledNotifier.value = prefs.getBool(_hapticsPrefKey) ?? true;
     } catch (_) {
       themeModeNotifier.value = AppThemeMode.defaultTheme;
       payCardStyleNotifier.value = PayCardStyle.cirrusNavy;
       textScaleNotifier.value = AppTextScale.normal;
-      hapticsEnabledNotifier.value = true;
     }
+    await AppPreferencesService.init();
   }
 
   /// Updates and persists the theme mode.
@@ -224,13 +223,8 @@ class ThemeService {
   }
 
   /// Updates and persists the haptic feedback preference.
-  static Future<void> setHapticsEnabled(bool enabled) async {
-    hapticsEnabledNotifier.value = enabled;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_hapticsPrefKey, enabled);
-    } catch (_) {}
-  }
+  static Future<void> setHapticsEnabled(bool enabled) =>
+      AppPreferencesService.setHapticsEnabled(enabled);
 
   /// Resets appearance preferences to defaults (useful for unit tests).
   @visibleForTesting
@@ -238,6 +232,6 @@ class ThemeService {
     themeModeNotifier.value = AppThemeMode.defaultTheme;
     payCardStyleNotifier.value = PayCardStyle.cirrusNavy;
     textScaleNotifier.value = AppTextScale.normal;
-    hapticsEnabledNotifier.value = true;
+    AppPreferencesService.hapticsEnabledNotifier.value = true;
   }
 }

@@ -5,6 +5,7 @@ import 'package:cirrus_app/screens/saved_accounts_screen.dart';
 import 'package:cirrus_app/screens/settings_screen.dart';
 import 'package:cirrus_app/services/app_preferences_service.dart';
 import 'package:cirrus_app/services/auth_service.dart';
+import 'package:cirrus_app/services/language_service.dart';
 import 'package:cirrus_app/services/theme_service.dart';
 import 'package:cirrus_app/theme/app_theme.dart';
 import 'package:cirrus_app/widgets/app_bottom_nav.dart';
@@ -406,4 +407,38 @@ void main() {
       expect(find.text('Account Four'), findsOneWidget);
     },
   );
+
+  testWidgets('SettingsScreen opens HelpFaqScreen and toggles FAQ accordion', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    await LanguageService.setLanguage(AppLanguage.en);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.forMode(AppThemeMode.defaultTheme),
+        home: const SettingsScreen(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final helpTile = find.byKey(const Key('settings-help-faq-tile'));
+    await tester.ensureVisible(helpTile);
+    await tester.pumpAndSettle();
+    await tester.tap(helpTile);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Help & Guide'), findsOneWidget);
+    expect(find.text('Cirrus EMS Quick Guide'), findsOneWidget);
+
+    // Starts collapsed; tap item 0 to expand, tap again to collapse.
+    expect(find.textContaining('auto-sync every 15 seconds'), findsNothing);
+    await tester.tap(find.byKey(const Key('help-faq-item-0')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('auto-sync every 15 seconds'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('help-faq-item-0')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('auto-sync every 15 seconds'), findsNothing);
+  });
 }

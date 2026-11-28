@@ -156,6 +156,8 @@ class PayrollService {
     return headers;
   }
 
+  static const Duration _requestTimeout = Duration(seconds: 15);
+
   static Future<Map<String, dynamic>> _request(
     String method,
     String path, {
@@ -166,24 +168,32 @@ class PayrollService {
     late http.Response response;
     switch (method) {
       case 'GET':
-        response = await _client.get(uri, headers: headers);
+        response = await _client
+            .get(uri, headers: headers)
+            .timeout(_requestTimeout);
         break;
       case 'POST':
-        response = await _client.post(
-          uri,
-          headers: headers,
-          body: body == null ? null : jsonEncode(body),
-        );
+        response = await _client
+            .post(
+              uri,
+              headers: headers,
+              body: body == null ? null : jsonEncode(body),
+            )
+            .timeout(_requestTimeout);
         break;
       case 'PATCH':
-        response = await _client.patch(
-          uri,
-          headers: headers,
-          body: body == null ? null : jsonEncode(body),
-        );
+        response = await _client
+            .patch(
+              uri,
+              headers: headers,
+              body: body == null ? null : jsonEncode(body),
+            )
+            .timeout(_requestTimeout);
         break;
       case 'DELETE':
-        response = await _client.delete(uri, headers: headers);
+        response = await _client
+            .delete(uri, headers: headers)
+            .timeout(_requestTimeout);
         break;
       default:
         throw UnsupportedError('Unsupported method $method');
@@ -210,34 +220,11 @@ class PayrollService {
     return <String, dynamic>{};
   }
 
-  static bool get _isLocalBridge {
-    final lower = AuthService.baseUrl.toLowerCase();
-    return lower.contains('localhost') ||
-        lower.contains('127.0.0.1') ||
-        lower.contains('10.0.2.2') ||
-        lower.contains('192.168.');
-  }
-
-  /// Fetches the logged-in employee's hourly rate & recurring deductions.
-  /// Calls `GET /payroll/my-config` only on the local bridge; on live
-  /// NestJS servers, goes straight to `GET /compensation` so `/payroll/:id`
-  /// is never hit with `"my-config"`.
+  /// Fetches the logged-in employee's hourly rate & recurring deductions
+  /// directly from `GET /compensation` on the live NestJS API.
   static Future<MyPayrollConfig> getMyPayrollConfig() async {
     if (debugMyConfigLoader != null) {
       return debugMyConfigLoader!();
-    }
-    if (_isLocalBridge) {
-      try {
-        final data = await _request('GET', '/payroll/my-config');
-        final cfg = MyPayrollConfig.fromJson(data);
-        if (cfg.salary != null ||
-            cfg.hourlyRate != null ||
-            cfg.items.isNotEmpty) {
-          return cfg;
-        }
-      } catch (_) {
-        // Fall through to /compensation lookup.
-      }
     }
     return _loadMyConfigFromCompensation();
   }

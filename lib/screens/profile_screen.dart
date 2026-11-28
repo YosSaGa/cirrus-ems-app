@@ -328,13 +328,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                             ),
                           leading: CircleAvatar(
-                            backgroundColor: AppColors.neutral,
+                            backgroundColor: AppColors.avatarBackground,
                             child: Text(
                               account.name.isNotEmpty
                                   ? account.name.characters.first.toUpperCase()
                                   : 'U',
                               style: TextStyle(
-                                color: AppColors.secondary,
+                                color: AppColors.avatarForeground,
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
@@ -594,13 +594,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       CircleAvatar(
                         radius: 21,
-                        backgroundColor: AppColors.neutral,
+                        backgroundColor: AppColors.avatarBackground,
                         child: Text(
                           selected.name.isNotEmpty
                               ? selected.name.characters.first.toUpperCase()
                               : 'U',
                           style: TextStyle(
-                            color: AppColors.secondary,
+                            color: AppColors.avatarForeground,
                             fontWeight: FontWeight.w800,
                             fontSize: 16,
                           ),

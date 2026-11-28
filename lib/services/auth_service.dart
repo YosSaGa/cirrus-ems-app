@@ -181,6 +181,9 @@ class AuthService {
     defaultValue: '',
   );
 
+  static const String defaultProductionBaseUrl =
+      'https://api.cirrusmarine.site/api/v1/ems';
+
   /// Priority: compile-time override → non-empty .env → platform default.
   @visibleForTesting
   static String resolveBaseUrl({
@@ -188,9 +191,15 @@ class AuthService {
     required String? envValue,
     required String platformDefault,
   }) {
-    if (compileTimeOverride.isNotEmpty) return compileTimeOverride;
-    if (envValue != null && envValue.isNotEmpty) return envValue;
-    return platformDefault;
+    final override = compileTimeOverride.trim();
+    if (override.isNotEmpty) {
+      return override.replaceFirst(RegExp(r'/+$'), '');
+    }
+    final env = envValue?.trim();
+    if (env != null && env.isNotEmpty) {
+      return env.replaceFirst(RegExp(r'/+$'), '');
+    }
+    return platformDefault.trim().replaceFirst(RegExp(r'/+$'), '');
   }
 
   static String get baseUrl {
@@ -198,7 +207,7 @@ class AuthService {
       return resolveBaseUrl(
         compileTimeOverride: _webUrlOverride,
         envValue: dotenv.env['API_BASE_URL_WEB'],
-        platformDefault: 'http://localhost:3000/api/v1/ems',
+        platformDefault: defaultProductionBaseUrl,
       );
     }
 
@@ -206,7 +215,7 @@ class AuthService {
       return resolveBaseUrl(
         compileTimeOverride: _androidUrlOverride,
         envValue: dotenv.env['API_BASE_URL_ANDROID'],
-        platformDefault: 'http://10.0.2.2:3000/api/v1/ems',
+        platformDefault: defaultProductionBaseUrl,
       );
     }
 
@@ -214,11 +223,15 @@ class AuthService {
       return resolveBaseUrl(
         compileTimeOverride: _iosUrlOverride,
         envValue: dotenv.env['API_BASE_URL_IOS'],
-        platformDefault: 'http://localhost:3000/api/v1/ems',
+        platformDefault: defaultProductionBaseUrl,
       );
     }
 
-    return 'http://localhost:3000/api/v1/ems';
+    return resolveBaseUrl(
+      compileTimeOverride: _webUrlOverride,
+      envValue: dotenv.env['API_BASE_URL_WEB'],
+      platformDefault: defaultProductionBaseUrl,
+    );
   }
 
   static const String _tokenKey = 'ems.authToken';
@@ -403,6 +416,7 @@ class AuthService {
       _permissionsKey,
       jsonEncode(result['permissions'] ?? <String>[]),
     );
+    TechnicianService.clearCachedDashboard();
 
     if (result['user'] is Map) {
       await _recordRecentAccount(
@@ -785,9 +799,14 @@ class AuthService {
       await prefs.setString(_permissionsKey, jsonEncode(account.savedPermissions));
       await _persistMeFields(verification.body!);
       final existing = await getRecentAccounts();
-      final promoted = account.copyWith(lastUsedAt: DateTime.now());
+      final idx = existing.indexWhere(
+        (a) => a.username.toLowerCase() == account.username.toLowerCase(),
+      );
+      final refreshed = idx >= 0
+          ? existing[idx].copyWith(lastUsedAt: DateTime.now())
+          : account.copyWith(lastUsedAt: DateTime.now());
       final updated = <RecentAccount>[
-        promoted,
+        refreshed,
         ...existing.where(
           (a) => a.username.toLowerCase() != account.username.toLowerCase(),
         ),
@@ -824,7 +843,8 @@ class AuthService {
     }
   }
 
-  /// Lists up to 6 accounts that have previously signed in on this device.
+  /// Lists up to 30 accounts that have previously signed in on this device,
+  /// pruning any expired instant-switch tokens (> 5 days).
   static Future<List<RecentAccount>> getRecentAccounts() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_recentAccountsKey);
@@ -832,11 +852,28 @@ class AuthService {
     try {
       final decoded = jsonDecode(raw);
       if (decoded is List) {
-        return decoded
+        final parsed = decoded
             .whereType<Map>()
             .map((m) => RecentAccount.fromJson(Map<String, dynamic>.from(m)))
             .where((a) => a.username.isNotEmpty)
             .toList(growable: false);
+        var prunedAny = false;
+        final cleaned = parsed.map((a) {
+          if (a.savedToken != null &&
+              a.savedToken!.isNotEmpty &&
+              !a.canInstantSwitch) {
+            prunedAny = true;
+            return a.copyWith(clearToken: true);
+          }
+          return a;
+        }).toList(growable: false);
+        if (prunedAny) {
+          await prefs.setString(
+            _recentAccountsKey,
+            jsonEncode(cleaned.map((a) => a.toJson()).toList()),
+          );
+        }
+        return cleaned;
       }
     } catch (_) {}
     return const [];

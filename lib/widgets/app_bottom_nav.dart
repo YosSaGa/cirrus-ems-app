@@ -122,8 +122,8 @@ class _AppBottomNavState extends State<AppBottomNav>
                     ),
                     duration: reducedMotion
                         ? Duration.zero
-                        : const Duration(milliseconds: 360),
-                    curve: Curves.easeOutCubic,
+                        : const Duration(milliseconds: 380),
+                    curve: Curves.easeOutQuart,
                     builder: (context, position, _) {
                       _currentPosition = position;
                       final target = widget.currentIndex.toDouble();
@@ -180,6 +180,8 @@ class _AppBottomNavState extends State<AppBottomNav>
                                       center: itemWidth * (position + 0.5),
                                       surfaceColor: AppColors.surface,
                                       shadowColor: AppColors.bottomNavShadow,
+                                      borderColor: AppColors.cardBorder
+                                          .withValues(alpha: 0.72),
                                     ),
                                   ),
                                 ),
@@ -198,20 +200,55 @@ class _AppBottomNavState extends State<AppBottomNav>
                                     decoration: BoxDecoration(
                                       color: AppColors.bottomNavBubble,
                                       shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: AppColors.secondary.withValues(
+                                          alpha: 0.28,
+                                        ),
+                                        width: 1.2,
+                                      ),
                                       boxShadow: [
                                         BoxShadow(
                                           color: AppColors.bottomNavBubble
-                                              .withValues(alpha: 0.18),
-                                          blurRadius: 12,
+                                              .withValues(alpha: 0.22),
+                                          blurRadius: 14,
+                                          offset: const Offset(0, 6),
+                                        ),
+                                        BoxShadow(
+                                          color: AppColors.secondary.withValues(
+                                            alpha: 0.22,
+                                          ),
+                                          blurRadius: 16,
                                           offset: const Offset(0, 4),
                                         ),
                                       ],
                                     ),
-                                    child: Icon(
-                                      appNavDestinations[activeIconIndex].icon,
-                                      key: ValueKey(activeIconIndex),
-                                      color: AppColors.bottomNavIcon,
-                                      size: 25,
+                                    child: AnimatedSwitcher(
+                                      duration: reducedMotion
+                                          ? Duration.zero
+                                          : const Duration(milliseconds: 180),
+                                      transitionBuilder: (child, anim) =>
+                                          FadeTransition(
+                                            opacity: anim,
+                                            child: ScaleTransition(
+                                              scale: Tween<double>(
+                                                begin: 0.72,
+                                                end: 1.0,
+                                              ).animate(
+                                                CurvedAnimation(
+                                                  parent: anim,
+                                                  curve: Curves.easeOutBack,
+                                                ),
+                                              ),
+                                              child: child,
+                                            ),
+                                          ),
+                                      child: Icon(
+                                        appNavDestinations[activeIconIndex]
+                                            .icon,
+                                        key: ValueKey(activeIconIndex),
+                                        color: AppColors.bottomNavIcon,
+                                        size: 25,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -258,9 +295,11 @@ class _AppBottomNavState extends State<AppBottomNav>
                                     );
                                     iconOpacity = 1.0 - progress;
                                     textOffset = Offset(0, -0.65 * progress);
-                                    textColor = progress > 0.5
-                                        ? AppColors.neutral
-                                        : AppColors.textSecondary;
+                                    textColor = Color.lerp(
+                                      AppColors.textSecondary,
+                                      AppColors.neutral,
+                                      progress,
+                                    )!;
                                     textWeight = progress > 0.5
                                         ? FontWeight.w700
                                         : FontWeight.w500;
@@ -281,9 +320,11 @@ class _AppBottomNavState extends State<AppBottomNav>
                                       0,
                                       -0.65 * (1.0 - progress),
                                     );
-                                    textColor = progress > 0.5
-                                        ? AppColors.textSecondary
-                                        : AppColors.neutral;
+                                    textColor = Color.lerp(
+                                      AppColors.neutral,
+                                      AppColors.textSecondary,
+                                      progress,
+                                    )!;
                                     textWeight = progress > 0.5
                                         ? FontWeight.w500
                                         : FontWeight.w700;
@@ -404,11 +445,13 @@ class _NavigationSurface extends CustomPainter {
     required this.center,
     required this.surfaceColor,
     required this.shadowColor,
+    required this.borderColor,
   });
 
   final double center;
   final Color surfaceColor;
   final Color shadowColor;
+  final Color borderColor;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -459,11 +502,19 @@ class _NavigationSurface extends CustomPainter {
       false,
     );
     canvas.drawPath(path, Paint()..color = surfaceColor);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = borderColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0,
+    );
   }
 
   @override
   bool shouldRepaint(_NavigationSurface oldDelegate) =>
       oldDelegate.center != center ||
       oldDelegate.surfaceColor != surfaceColor ||
-      oldDelegate.shadowColor != shadowColor;
+      oldDelegate.shadowColor != shadowColor ||
+      oldDelegate.borderColor != borderColor;
 }

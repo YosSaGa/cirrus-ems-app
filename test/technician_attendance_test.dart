@@ -1165,4 +1165,35 @@ void main() {
       expect(button.enabled, isTrue);
     },
   );
+
+  testWidgets(
+    'TechnicianJobDetailScreen shows ASSIGNED CREW card with crew chips and highlights current user',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'ems.user': jsonEncode({'id': 't1', 'name': 'Touch'}),
+      });
+      await LanguageService.setLanguage(AppLanguage.en);
+
+      await tester.pumpWidget(
+        wrapScreen(
+          const TechnicianJobDetailScreen(
+            job: TechnicianJob(
+              id: 'wo-crew',
+              jobCode: 'WO-CREW-1',
+              title: 'Engine Overhaul',
+              isMine: true,
+              assignedToName: 'M, Bom V.2, Touch',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('job-assigned-crew-card')), findsOneWidget);
+      expect(find.text('ASSIGNED CREW (3)'), findsOneWidget);
+      expect(find.text('Bom V.2'), findsOneWidget);
+      expect(find.text('Touch'), findsOneWidget);
+      expect(find.text('YOU'), findsOneWidget);
+    },
+  );
 }

@@ -666,6 +666,8 @@ class AttendanceService {
     await _writePendingRequest(userId, record);
   }
 
+  static const Duration _requestTimeout = Duration(seconds: 20);
+
   static Future<AttendanceSubmissionResult> _sendPendingRequest(
     Map<String, dynamic> pending,
   ) async {
@@ -673,11 +675,13 @@ class AttendanceService {
     final clientRequestId = pending['clientRequestId'] as String;
     final payload = Map<String, dynamic>.from(pending['payload'] as Map);
 
-    final response = await _client.post(
-      Uri.parse('$_baseUrl/events'),
-      headers: await _headers(),
-      body: jsonEncode({'clientRequestId': clientRequestId, ...payload}),
-    );
+    final response = await _client
+        .post(
+          Uri.parse('$_baseUrl/events'),
+          headers: await _headers(),
+          body: jsonEncode({'clientRequestId': clientRequestId, ...payload}),
+        )
+        .timeout(_requestTimeout);
 
     final decoded = _decodeResponse(response);
     await _clearPendingRequest(userId);
@@ -786,10 +790,9 @@ class AttendanceService {
   }
 
   static Future<Map<String, dynamic>> getAttendanceStatus() async {
-    final response = await _client.get(
-      Uri.parse('$_baseUrl/status'),
-      headers: await _headers(),
-    );
+    final response = await _client
+        .get(Uri.parse('$_baseUrl/status'), headers: await _headers())
+        .timeout(_requestTimeout);
 
     return _decodeResponse(response);
   }
@@ -834,7 +837,9 @@ class AttendanceService {
       },
     );
 
-    final response = await _client.get(uri, headers: await _headers());
+    final response = await _client
+        .get(uri, headers: await _headers())
+        .timeout(_requestTimeout);
     return _decodeBareArrayResponse(response);
   }
 
@@ -858,7 +863,9 @@ class AttendanceService {
       },
     );
 
-    final response = await _client.get(uri, headers: await _headers());
+    final response = await _client
+        .get(uri, headers: await _headers())
+        .timeout(_requestTimeout);
     return _decodeBareArrayResponse(response);
   }
 
@@ -980,14 +987,16 @@ class AttendanceService {
         workDate,
       );
 
-      final response = await _client.post(
-        Uri.parse('$_baseUrl/pending-checkout/resolve'),
-        headers: await _headers(),
-        body: jsonEncode({
-          'clientRequestId': clientRequestId,
-          'workDate': workDate,
-        }),
-      );
+      final response = await _client
+          .post(
+            Uri.parse('$_baseUrl/pending-checkout/resolve'),
+            headers: await _headers(),
+            body: jsonEncode({
+              'clientRequestId': clientRequestId,
+              'workDate': workDate,
+            }),
+          )
+          .timeout(_requestTimeout);
 
       // claude_prompt.txt (v117 §3 "Fix ALREADY_RESOLVED Cleanup
       // Handling"): the exact ALREADY_RESOLVED response is now caught
@@ -1124,7 +1133,9 @@ class AttendanceService {
     // `AttendanceApiException` for any non-2xx HTTP status, reusing the
     // same error-message extraction every other endpoint in this file
     // relies on, so only the success-shape check is new here.
-    final response = await http.Response.fromStream(streamed);
+    final response = await http.Response.fromStream(
+      streamed,
+    ).timeout(uploadTimeout);
     final decoded = _decodeResponse(response);
 
     final storageKey = decoded['storageKey'];

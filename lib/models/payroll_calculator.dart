@@ -175,11 +175,11 @@ class PayrollAdjustmentItem {
 
   /// Computes the satang impact of this item given [grossSatang].
   int computeSatang(int grossSatang) {
-    if (!isActive || amount <= 0) return 0;
+    if (!isActive || !amount.isFinite || amount <= 0) return 0;
     if (isPercent) {
       if (grossSatang <= 0) return 0;
       var computed = (grossSatang * amount / 100).round();
-      if (maxCap != null && maxCap! > 0) {
+      if (maxCap != null && maxCap!.isFinite && maxCap! > 0) {
         final capSatang = (maxCap! * 100).round();
         if (computed > capSatang) computed = capSatang;
       }
@@ -389,7 +389,9 @@ PayEstimate calculateScanPay(
       continue;
     }
     if (periodStart != null && periodEnd != null) {
-      if (date.isBefore(periodStart) || date.isAfter(periodEnd)) continue;
+      final startDay = DateTime(periodStart.year, periodStart.month, periodStart.day);
+      final endDay = DateTime(periodEnd.year, periodEnd.month, periodEnd.day);
+      if (date.isBefore(startDay) || date.isAfter(endDay)) continue;
     } else {
       if (date.year != month.year || date.month != month.month) continue;
     }

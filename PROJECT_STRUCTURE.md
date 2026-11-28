@@ -76,6 +76,7 @@ Attendance ส่งรูปและ event ผ่าน `AttendanceService` �
 | `theme_settings_screen.dart` | หน้าย่อยเลือกธีมแอป (Default, Pure White, Obsidian Black) พร้อมตัวอย่างเฉดสี |
 | `language_settings_screen.dart` | หน้าย่อยสลับภาษาแสดงผล (English / ภาษาไทย) พร้อมตัวอย่างข้อความและฟอนต์ IBM Plex Sans Thai |
 | `device_check_screen.dart` | หน้าตรวจความพร้อมหน้างาน (เซิร์ฟเวอร์ EMS `/health`, สิทธิ์ GPS และกล้อง) พร้อมปุ่มขอสิทธิ์/เปิดตั้งค่าแอป |
+| `help_faq_screen.dart` | หน้าคู่มือและคำถามที่พบบ่อย (Attendance, โหมดช่าง, รอบเงินเดือน/ใบลา, แก้ปัญหาเบื้องต้น) เข้าจาก Settings > About |
 | `storage_cache_screen.dart` | หน้า Storage & Cache แบบกราฟวงแหวน (Telegram-style) แสดงสัดส่วนแคชแต่ละแหล่งและเลือกล้างแคชได้ |
 | `welcome_screen.dart` | หน้า Welcome ที่มีอยู่ในโค้ด ตรวจ routes/callers ก่อนนำมาใช้ |
 

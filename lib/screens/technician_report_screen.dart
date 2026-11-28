@@ -384,6 +384,86 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
     });
   }
 
+  Future<void> _previewPhoto(int index) async {
+    if (index < 0 || index >= _photos.length) return;
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.88),
+      builder: (dlgCtx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.65),
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                  ),
+                  child: Text(
+                    '${index + 1} / ${_photos.length}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  key: const Key('preview-delete-photo-button'),
+                  tooltip: AppStrings.t(
+                    'Delete photo',
+                    'ลบรูปภาพ',
+                    'Padam foto',
+                  ),
+                  onPressed: _submitting
+                      ? null
+                      : () {
+                          Navigator.of(dlgCtx).pop();
+                          _removePhoto(index);
+                        },
+                  icon: const Icon(
+                    Icons.delete_outline_rounded,
+                    color: Colors.redAccent,
+                  ),
+                ),
+                IconButton(
+                  tooltip: AppStrings.t('Close', 'ปิด', 'Tutup'),
+                  onPressed: () => Navigator.of(dlgCtx).pop(),
+                  icon: const Icon(Icons.close_rounded, color: Colors.white),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.72,
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: InteractiveViewer(
+                  minScale: 0.8,
+                  maxScale: 4.0,
+                  child: Image.memory(
+                    _photos[index].bytes,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _submit() async {
     if (_submitting) return;
     final desc = _descController.text.trim();
@@ -627,9 +707,9 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
     final vesselName = s?.vesselName ?? j?.vesselName;
 
     return PopScope(
-      canPop: !_isLocked && (_photos.isEmpty || _submitting),
+      canPop: !_isLocked && !_submitting && _photos.isEmpty,
       onPopInvokedWithResult: (didPop, _) async {
-        if (didPop) return;
+        if (didPop || _submitting) return;
         if (_isLocked) {
           HapticFeedback.heavyImpact();
           final messenger = ScaffoldMessenger.maybeOf(context);
@@ -976,13 +1056,18 @@ class _TechnicianReportScreenState extends State<TechnicianReportScreen>
                                   child: Stack(
                                     clipBehavior: Clip.none,
                                     children: [
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(14),
-                                        child: Image.memory(
-                                          _photos[i].bytes,
-                                          width: 92,
-                                          height: 92,
-                                          fit: BoxFit.cover,
+                                      GestureDetector(
+                                        key: Key('report-photo-thumb-$i'),
+                                        onTap: () => _previewPhoto(i),
+                                        child: ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(14),
+                                          child: Image.memory(
+                                            _photos[i].bytes,
+                                            width: 92,
+                                            height: 92,
+                                            fit: BoxFit.cover,
+                                          ),
                                         ),
                                       ),
                                       Positioned(
