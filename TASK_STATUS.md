@@ -1,12 +1,18 @@
 # สถานะงาน Cirrus EMS
 
-อัปเดตล่าสุด: 28 พฤศจิกายน 2026 (เข้ารหัส Token ด้วย flutter_secure_storage, ปิด Cleartext/Backup, Optimize & Splash Sonar)
+อัปเดตล่าสุด: 28 พฤศจิกายน 2026 (Quick Drawer `☰` ครบ 4 แท็บ, Watermark, E-Payslip PDF, Biometric Lock, Human-Error Guards, Shift Reminders, 60/120fps Motion Polish, Gradle 9.5 / AGP 9.3.1 / Kotlin 2.4.20)
 
 ภาพรวมและวิธีรันดู [README.md](README.md) — ไฟล์นี้เป็นแหล่งหลักสำหรับสถานะงาน แยกสิ่งที่มีในโค้ดออกจากสิ่งที่ตรวจบนระบบจริงแล้ว กติกาการทำงานและคำสั่งสำคัญดู [AGENTS.md](AGENTS.md) แนวทาง UI ดู [DESIGN.md](DESIGN.md)
 
 ---
 
 ## สภาพแวดล้อมปัจจุบัน
+
+### 28 พฤศจิกายน 2026 — ต้นแบบ Cirrus Sonar สำหรับพิจารณา
+
+สร้างโมเดลหน้าปัดจากเส้นโลโก้ Cirrus ใน `prototypes/sonar/` พร้อมภาพเรนเดอร์ เปิดไฟล์ `.blend` กลับมาตรวจชิ้นโลโก้และกล้องสำเร็จ ต้นแบบยังอยู่นอก Flutter assets และรอการตัดสินใจก่อนนำไปใช้ ตรวจ README แล้ว วิธีรันแอปยังเหมือนเดิม งานนี้ตรวจด้วย Blender โดยตรง ไม่ได้รัน Flutter tests
+
+Blender 4.3.2 ที่ใช้สร้างโมเดลต่ำกว่ารุ่นขั้นต่ำของ add-on MCP ทางการ จึงติดตั้ง Blender 5.1.2 แยกในโฟลเดอร์ผู้ใช้สำหรับเชื่อมต่อฉากต้นแบบ
 
 | รายการ | ค่า |
 |---|---|
@@ -109,24 +115,17 @@
 
 ## ประวัติการเปลี่ยนแปลง
 
-### 28 พฤศจิกายน 2026 — เพิ่มระบบกัน Human Error, Shift Scan Reminders และ Motion Polish
+### 28 พฤศจิกายน 2026 — เพิ่มฟีเจอร์เสริม, Human-Error Guards, Shift Reminders, Motion Polish และอัปเกรด Kotlin/Gradle
 
-- **สิ่งที่เปลี่ยน (`lib/screens/leave_trial_tab.dart`, `lib/screens/attendance_screen.dart`, `lib/services/shift_reminder_service.dart`, `lib/screens/settings_screen.dart`, `lib/widgets/bouncy_tap.dart`, `lib/theme/app_theme.dart`, `lib/widgets/app_quick_drawer.dart`, `lib/main.dart`, `android/app/src/main/kotlin/com/cirrusgroup/ems/MainActivity.kt`, `android/app/src/main/kotlin/com/cirrusgroup/ems/ShiftReminderReceiver.kt`, `android/app/src/main/AndroidManifest.xml`):**
-  - **Leave Smart Guard (`LeaveTrialTab`):** แจ้งเตือนวันย้อนหลัง, วันคร่อมเสาร์-อาทิตย์ และวันลาซ้อนทับใบลาเดิม (Pending/Approved) พร้อม Dialog ยืนยันก่อนส่งซ้ำ
-  - **Early Check-Out Guard (`AttendanceScreen`):** เตือนยืนยันอีกครั้งหากช่างกด Check-Out หลังเพิ่ง Check-In ไปไม่ถึง 5 นาที
-  - **Local Shift Scan Reminders (`ShiftReminderService` + `AlarmManager`):** ตั้งเตือนรายวัน 4 ช่วง (`07:55`, `12:00`, `13:00`, `17:00`) ในเครื่อง เปิด/ปิดได้ใน `Settings > Shift Scan Reminders`
-  - **Motion & Tactile Polish (`BouncyTap`, `_SlideFadePageTransitionsBuilder`, `FadeSlideEntry`):** เพิ่มเอฟเฟกต์กดยุบ-เด้งสปริงบนเมนูลัด, Staggered Cascade ใน `AppQuickDrawer` และ Page Transition แบบเลื่อน-เฟด `Curves.easeOutCubic` ทั้งแอป (รองรับ Reduce Motion)
-
-### 28 พฤศจิกายน 2026 — เพิ่ม 6 ฟีเจอร์เสริม (Watermark, E-Payslip PDF, Biometric Lock, QR Scanner, GPS Map, Celebration Overlay)
-
-- **สิ่งที่เปลี่ยน (`lib/services/photo_watermark_service.dart`, `lib/services/payslip_pdf_builder.dart`, `lib/services/biometric_service.dart`, `lib/services/app_preferences_service.dart`, `lib/widgets/success_feedback_overlay.dart`, `lib/screens/qr_job_scanner_screen.dart`, `lib/screens/attendance_map_screen.dart`, `lib/screens/attendance_screen.dart`, `lib/screens/earnings_trial_tab.dart`, `lib/screens/settings_screen.dart`, `lib/screens/leave_trial_tab.dart`, `lib/screens/leave_approval_screen.dart`, `lib/widgets/app_quick_drawer.dart`, `lib/main.dart`):**
-  - **Photo Watermark (`PhotoWatermarkService`):** แปะแถบเวลา + พิกัด GPS + ประเภทการสแกนลงล่างภาพถ่ายหน้างานอัตโนมัติ (fallback คืน bytes เดิมหากถอดรหัสภาพไม่ได้)
+- **สิ่งที่เปลี่ยน (`lib/services/photo_watermark_service.dart`, `lib/services/payslip_pdf_builder.dart`, `lib/services/biometric_service.dart`, `lib/services/shift_reminder_service.dart`, `lib/services/app_preferences_service.dart`, `lib/widgets/success_feedback_overlay.dart`, `lib/widgets/bouncy_tap.dart`, `lib/widgets/app_quick_drawer.dart`, `lib/theme/app_theme.dart`, `lib/screens/main_shell.dart`, `lib/screens/attendance_screen.dart`, `lib/screens/history_screen.dart`, `lib/screens/work_trial_screen.dart`, `lib/screens/profile_screen.dart`, `lib/screens/earnings_trial_tab.dart`, `lib/screens/leave_trial_tab.dart`, `lib/screens/leave_approval_screen.dart`, `lib/screens/settings_screen.dart`, `lib/main.dart`, `android/app/src/main/kotlin/com/cirrusgroup/ems/MainActivity.kt`, `android/app/src/main/kotlin/com/cirrusgroup/ems/ShiftReminderReceiver.kt`, `android/app/src/main/AndroidManifest.xml`, `android/settings.gradle.kts`, `android/gradle/wrapper/gradle-wrapper.properties`):**
+  - **Photo Watermark (`PhotoWatermarkService`):** แปะแถบเวลา + ประเภทการสแกนลงล่างภาพถ่ายหน้างานอัตโนมัติ (downscale `targetWidth: 1280` ลด peak RAM, fallback คืน bytes เดิมหากถอดรหัสภาพไม่ได้)
   - **Digital E-Payslip PDF (`PayslipPdfBuilder`):** ออกสลิปเงินเดือนอิเล็กทรอนิกส์ (Sarabun ไทย/อังกฤษ) จากแท็บ `Pay Estimate` พร้อมปุ่ม Download PDF & Share
   - **Biometric Pay Lock (`BiometricService`, `local_auth`):** เปิด/ปิดล็อกหน้าค่าแรงและ E-Payslip ด้วยลายนิ้วมือ / Face ID ใน `Settings`
-  - **QR Job Scanner:** นำ `Scan Job QR` (`mobile_scanner`) และ `Site & GPS Map` (`flutter_map`/`latlong2`) ออกตามคำขอผู้ใช้ และขยายความกว้าง `AppQuickDrawer` เป็น 84% ของหน้าจอ (clamp `304–390px`) ไม่ให้เหลือช่องว่างขวาเยอะ
-  - **Success Celebration & Sound (`SuccessFeedbackOverlay`):** แสดงเอฟเฟกต์ยืนยันพร้อมสั่น/เสียงเบาๆ เมื่อส่งใบลา อนุมัติใบลา หรือบันทึกสลิป (เปิด/ปิดได้ใน `Settings`)
-  - **Low-End Device Optimization & 60/120fps:** ปรับ `MainActivity.kt` เป็น `FlutterFragmentActivity` พร้อมปลดล็อก `preferredDisplayModeId` สูงสุดของจอ (60/90/120Hz), เปิด `GestureBinding.instance.resamplingEnabled = true` + จำกัด `imageCache` 64 MB ใน `main.dart`, downscale ภาพ `targetWidth: 1280` ใน `PhotoWatermarkService`, `RepaintBoundary` + Reduce Motion ใน `SuccessFeedbackOverlay`
-- **ปัญหาที่พบ → วิธีแก้:** เพิ่ม `local_auth 3.0.2` (ถอด `mobile_scanner`, `flutter_map`, `latlong2` ออก) โดย `local_auth` v3 ใช้ named parameters `localizedReason`/`biometricOnly` โดยตรงแทน `AuthenticationOptions`
+  - **Success Celebration & Sound (`SuccessFeedbackOverlay`):** แสดงเอฟเฟกต์ยืนยันพร้อมสั่น/เสียงเบาๆ เมื่อส่งใบลา อนุมัติใบลา หรือบันทึกสลิป (เปิด/ปิดได้ใน `Settings`, รองรับ `disableAnimationsOf` + `RepaintBoundary`)
+  - **Leave Smart Guard & Early Check-Out Guard:** เตือนวันย้อนหลัง/เสาร์-อาทิตย์/วันลาซ้อนทับพร้อม Dialog ยืนยันก่อนส่ง และเตือนยืนยันหากช่างกด Check-Out หลัง Check-In ไม่ถึง 5 นาที
+  - **Local Shift Scan Reminders (`ShiftReminderService` + `AlarmManager`):** ตั้งเตือนรายวัน 4 ช่วง (`07:55`, `12:00`, `13:00`, `17:00`) ในเครื่อง เปิด/ปิดได้ใน `Settings > Shift Scan Reminders`
+  - **Motion Polish & 60/120fps (`BouncyTap`, `_SlideFadePageTransitionsBuilder`, `FadeSlideEntry`, `MainActivity.kt`):** เพิ่มปุ่ม `☰` (`AppQuickDrawer` กว้าง 84% เลื่อนทั้งหน้าใน `ListView` เดียว) ครบทั้ง 4 แท็บหลัก, เอฟเฟกต์กดยุบ-เด้งสปริง, Page Transition เลื่อน-เฟด, ปลดล็อก `preferredDisplayModeId` สูงสุด (60/90/120Hz), เปิด `GestureBinding.instance.resamplingEnabled`, จำกัด `imageCache` 64 MB และอัปเกรด Gradle `9.5.0` / AGP `9.3.1` / Kotlin `2.4.20`
+- **ปัญหาที่พบ → วิธีแก้:** `local_auth` v3 ใช้ named parameters `localizedReason`/`biometricOnly` โดยตรง, `TechnicianWorkSession.checkInAt` เป็น `String` จึง parse ด้วย `DateTime.tryParse` ก่อนคำนวณเวลา, ปรับ `AppQuickDrawer` เหลือเฉพาะฟีเจอร์งานจริง (`Leave Approvals`, `Payroll & Deductions`, `Job & Report History`, `Pay Simulator`, `Help & FAQ`) และแยกส่วนตั้งค่าไว้ใน `Settings` ตามเดิม
 
 ### 28 พฤศจิกายน 2026 — เพิ่ม Quick Menu Drawer (`☰`) รวมฟีเจอร์นอก Bottom Nav ตาม Role
 
